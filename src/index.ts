@@ -1,0 +1,103 @@
+import 'dotenv/config';
+import { fileURLToPath } from 'node:url';
+import { openDatabase } from './db/database.js';
+import { SupportEngine } from './engine/support-engine.js';
+import { TelegramAdapter } from './adapters/telegram.js';
+import { WhatsAppAdapter } from './adapters/whatsapp.js';
+import { createApp } from './server/app.js';
+import { loadConfig } from './config/index.js';
+import { createLLMProvider } from './llm/index.js';
+import { AdminAuth } from './auth/admin-auth.js';
+
+const config = loadConfig();
+
+export function bootstrap() {
+  const db = openDatabase(config.DB_PATH);
+  const auth = new AdminAuth(db, { sessionHours: config.ADMIN_SESSION_HOURS });
+  const engine = new SupportEngine(db, {
+    sessionTtlMinutes: config.SESSION_TTL_MINUTES,
+    llm: createLLMProvider(config),
+    model: config.LLM_MODEL,
+    maxSteps: config.AGENT_MAX_STEPS,
+    maxHistory: config.AGENT_MAX_HISTORY,
+    temperature: config.AGENT_TEMPERATURE,
+    tenantId: config.TENANT_ID,
+  });
+
+  engine.adapters.register(new TelegramAdapter());
+  engine.adapters.register(new WhatsAppAdapter());
+
+  seedIfEmpty(engine);
+
+  if (!auth.hasAdmins()) {
+    console.warn('[auth] No admin accounts exist. Create one with: npm run admin:create -- <username>');
+  }
+
+  const app = createApp(engine, {
+    auth,
+    sessionHours: config.ADMIN_SESSION_HOURS,
+    cookieSecure: config.COOKIE_SECURE,
+    dashboardOrigin: config.DASHBOARD_ORIGIN,
+    webhookSecret: config.CHANNEL_WEBHOOK_SECRET,
+  });
+  app.listen(config.PORT, () => {
+    console.log(`[support-engine] API + dashboard server listening on http://localhost:${config.PORT}`);
+    console.log(`[support-engine] DB: ${config.DB_PATH}`);
+    console.log(`[support-engine] LLM: ${config.LLM_PROVIDER} / ${config.LLM_MODEL}`);
+  });
+
+  for (const adapter of engine.adapters.list()) {
+    adapter.connect?.().catch((err) => console.error(`[${adapter.channel}] connect error`, err));
+  }
+
+  return { db, engine, app };
+}
+
+const COSMIQ_SERVICES = [
+  {
+    name: 'Company Internal Operations Automation',
+    description: 'Automation of recurring internal operations, such as approvals, reporting, and handoffs between teams.',
+    category: 'automation',
+  },
+  {
+    name: 'AI Native Internal System',
+    description: 'Internal systems designed around AI from the start, including assistants for staff and knowledge search.',
+    category: 'ai',
+  },
+  {
+    name: 'Workflow Automation',
+    description: 'End-to-end business workflows connected across the tools a team already uses.',
+    category: 'workflow',
+  },
+  {
+    name: 'WhatsApp Agent Services',
+    description: 'AI agents for WhatsApp customer conversations, with human handoff when needed.',
+    category: 'whatsapp',
+  },
+] as const;
+
+function seedCosmiqServices(engine: SupportEngine) {
+  const existing = new Set(engine.listServices().map((service) => service.name));
+  for (const service of COSMIQ_SERVICES) {
+    if (existing.has(service.name)) continue;
+    engine.createService({ ...service, status: 'available', availability_note: '' });
+  }
+}
+
+function seedIfEmpty(engine: SupportEngine) {
+  if (engine.listServices().length === 0) {
+    engine.createService({ name: 'Live Chat Support', description: 'Real-time assistance for account and product questions.', category: 'support', status: 'available', availability_note: 'Mon-Fri 09:00-18:00' });
+    engine.createService({ name: 'Billing Assistance', description: 'Invoices, refunds, and payment methods.', category: 'billing', status: 'limited', availability_note: 'Email follow-up within 1 business day' });
+    engine.createService({ name: 'API Integration Support', description: 'Developer onboarding and integration troubleshooting.', category: 'technical', status: 'maintenance', availability_note: 'Back online after scheduled maintenance' });
+  }
+  seedCosmiqServices(engine);
+  if (engine.listFaqs().length === 0) {
+    engine.createFaq({ question: 'What are your support hours?', answer: 'Live chat support is available Monday to Friday, 09:00-18:00 local business time.', tags: ['hours', 'support'] });
+    engine.createFaq({ question: 'How can I check service availability?', answer: 'Ask "what services are available?" in chat, or view the Services panel in the dashboard.', tags: ['services', 'availability'] });
+    engine.createFaq({ question: 'How do I submit a support request?', answer: 'Send your issue in chat and it will be logged as a request. You can also include details like account ID and screenshots.', tags: ['request', 'ticket'] });
+  }
+}
+
+// Run when executed directly.
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isMain) bootstrap();

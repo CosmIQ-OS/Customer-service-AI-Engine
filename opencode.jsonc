@@ -1,0 +1,27 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Playwright MCP powers the `browser-tester` agent's E2E checks.
+  // First run downloads a Chromium build through npx.
+  "mcp": {
+    "servers": {
+      "playwright": {
+        "type": "local",
+        "command": ["npx", "-y", "@playwright/mcp@latest"]
+      }
+    }
+  },
+
+  // Durable "always allow" rules for the build cycle. Everything else still
+  // falls back to OpenCode's normal ask-on-first-use behavior.
+  "permissions": [
+    { "action": "shell", "resource": "npm test *", "effect": "allow" },
+    { "action": "shell", "resource": "npm run typecheck", "effect": "allow" },
+    { "action": "shell", "resource": "npm run build", "effect": "allow" },
+    { "action": "shell", "resource": "npm run eval", "effect": "allow" },
+    { "action": "shell", "resource": "npm audit *", "effect": "allow" },
+    { "action": "shell", "resource": "git status *", "effect": "allow" },
+    { "action": "shell", "resource": "git diff *", "effect": "allow" },
+    { "action": "shell", "resource": "git push *", "effect": "ask" }
+  ]
+}

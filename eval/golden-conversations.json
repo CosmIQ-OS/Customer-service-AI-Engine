@@ -1,0 +1,37 @@
+[
+  {
+    "id": "services-availability",
+    "channel": "web",
+    "externalUserId": "eval-user-1",
+    "text": "What services are available?",
+    "expect": { "intent": "services", "replyMatches": "Live Chat Support: available" }
+  },
+  {
+    "id": "support-request",
+    "channel": "whatsapp",
+    "externalUserId": "eval-user-2",
+    "text": "I have a problem with my invoice",
+    "expect": { "intent": "support_request", "hasRequestId": true }
+  },
+  {
+    "id": "faq-policy",
+    "channel": "web",
+    "externalUserId": "eval-user-3",
+    "text": "What is your refund policy?",
+    "expect": { "intent": "faq" }
+  },
+  {
+    "id": "escalate",
+    "channel": "web",
+    "externalUserId": "eval-user-4",
+    "text": "I want to talk to a human",
+    "expect": { "intent": "escalation" }
+  },
+  {
+    "id": "fallback-greeting",
+    "channel": "web",
+    "externalUserId": "eval-user-5",
+    "text": "Hello",
+    "expect": { "intent": "assistant", "nonEmptyReply": true }
+  }
+]
