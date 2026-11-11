@@ -61,7 +61,7 @@ The front agent never states a price. A deterministic guard also checks each rep
 
 ### Quotes and margin
 
-When an intake is complete, a separate pricing agent selects the required line items from the service's active price table. Item codes, descriptions, units, and admin prices come from that table unchanged. The system then applies the configured markup and stores a draft quote.
+When an intake is complete, a separate pricing agent selects the required line items from the service's active price table. Item codes, descriptions, units, and admin prices come from that table unchanged. The system then applies the configured markup and queues the quote for admin approval.
 
 The markup is editable at any time between 30% and 35% in the dashboard or with `PUT /api/settings/quote-margin`. `QUOTE_MARGIN_PERCENT` only seeds the starting value; changing the environment variable later does not overwrite an admin's saved choice. Existing quotes keep the margin they were built with.
 
@@ -157,6 +157,14 @@ Tests cover tool execution, request creation, transcript continuity, and OpenAI-
 - `GET /api/sessions` — persisted session contexts
 - `GET /api/sessions/:id/messages` — chronological conversation transcript
 - `GET /api/traces` — model latency, token use, steps, and tool calls
+- `GET /api/intakes` — company, size, tools, and service collected per session
+- `GET|POST /api/services/:id/price-table` — upload and publish a service price table (xlsx or csv)
+- `GET /api/quotes`, `GET /api/quotes/:id`, `POST /api/quotes/build` — quote drafts and rebuilds
+- `GET|PUT /api/settings`, `PUT /api/settings/quote-margin` — live markup, 30–35%
+- `GET /api/approvals` — pending quotes, counts, and recent admin alerts
+- `PATCH /api/quotes/:id` — edit quantities and margin before approval
+- `POST /api/quotes/:id/approve`, `POST /api/quotes/:id/reject` — decide and deliver
+- `GET /api/notifications`, `POST /api/notifications/:id/read`, `POST /api/notifications/read-all`
 - `POST /api/chat/simulate` — simulate a channel message through the agent
 - `POST /api/channels/:channel/inbound` — normalized adapter ingress
 
@@ -181,11 +189,16 @@ The engine is channel-agnostic. The adapters already normalize platform payloads
 
 SQLite runs in WAL mode with foreign keys enabled. The repository layer isolates SQL so storage can move to PostgreSQL later without changing tool or channel contracts.
 
-`src/db/migrations/` contains ordered SQL migrations. Applied filenames are recorded in `schema_migrations`, allowing existing databases to upgrade without being recreated. Phase 1 adds `messages` (conversation transcripts) and `traces` (agent execution records), both tenant-scoped for future multi-tenancy.
+`src/db/migrations/` contains ordered SQL migrations. Applied filenames are recorded in `schema_migrations`, allowing existing databases to upgrade without being recreated. Do not edit a migration that has already been applied; add the next numbered file instead.
 
 ## Roadmap
 
-- **Phase 2:** four-tier memory — transcript, rolling summary, durable user facts, semantic episodic recall.
-- **Phase 3:** production WhatsApp Cloud API webhook and delivery.
-- **Phase 4:** live conversations, memory inspector, and prompt playground in the dashboard.
-- **Phase 5:** golden-conversation evaluation harness.
+- **Done — foundations:** admin accounts, session cookies, webhook secret, dashboard sign-in.
+- **Done — catalog:** per-service price tables (xlsx/csv), publish with versioning, Cosmiq services.
+- **Done — intake:** company, size, tools, and service collection; language detection; price-free front agent.
+- **Done — pricing:** pricing agent, editable 30–35% markup, draft quotes in INR paise.
+- **Done — approval:** six-hour window, repeating admin alerts, quantity and margin edits, itemized delivery or price-free handoff.
+- **Next — live conversations:** WhatsApp-style admin panel, one-hour idle timeout, pause AI, take over, and hand back.
+- **Then — Telegram:** real bot delivery and admin alerts.
+- **Then — deployment:** self-hosted Docker and cloudflared.
+- **Then — verification:** full end-to-end check before production.
