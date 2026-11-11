@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type AdminMe } from './api';
 import { LoginView } from './Login';
 import { PriceTables } from './PriceTables';
+import { Quotes } from './Quotes';
 
 type AnyRow = Record<string, any>;
 
@@ -23,6 +24,7 @@ export function App() {
   const [logs, setLogs] = useState<AnyRow[]>([]);
   const [services, setServices] = useState<AnyRow[]>([]);
   const [intakes, setIntakes] = useState<AnyRow[]>([]);
+  const [dataVersion, setDataVersion] = useState(0);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [sim, setSim] = useState({ channel: 'telegram', externalUserId: 'demo-user', text: 'What services are available?' });
@@ -45,6 +47,7 @@ export function App() {
       setLogs(l);
       setServices(sv);
       setIntakes(int);
+      setDataVersion((version) => version + 1);
     } catch (e: any) {
       if (e instanceof ApiError && e.status === 401) {
         setAdmin(null);
@@ -135,6 +138,8 @@ export function App() {
               ]}
             />
           </section>
+
+          <Quotes refreshKey={dataVersion} />
 
           <section className="card">
             <h2 className="panel-title">Chat Requests <span>from conversations</span></h2>

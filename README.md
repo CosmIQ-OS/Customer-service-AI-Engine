@@ -11,7 +11,9 @@ src/
   config/                 # Zod-validated environment configuration
   llm/                    # Provider contract, OpenAI-compatible client, mock, prompts
   kernel/                 # Agent loop, context builder, tool registry
-  tools/                  # Services, FAQs, requests, profile, human escalation
+  tools/                  # Services, FAQs, requests, profile, intake, escalation
+  intake/                 # Intake fields and language detection
+  pricing/                # Price-table parsing, pricing agent, quote builder, margin
   memory/                 # Four-tier memory (Phase 2)
   engine/                 # Channel-agnostic orchestration and session store
   adapters/               # Telegram and WhatsApp channel adapters
@@ -56,6 +58,14 @@ The front agent collects four details before a quote can be prepared: company na
 
 The front agent never states a price. A deterministic guard also checks each reply and replaces any reply containing a currency amount with a price-free holding message, logging a `price.blocked` event.
 
+### Quotes and margin
+
+When an intake is complete, a separate pricing agent selects the required line items from the service's active price table. Item codes, descriptions, units, and admin prices come from that table unchanged. The system then applies the configured markup and stores a draft quote.
+
+The markup is editable at any time between 30% and 35% in the dashboard or with `PUT /api/settings/quote-margin`. `QUOTE_MARGIN_PERCENT` only seeds the starting value; changing the environment variable later does not overwrite an admin's saved choice. Existing quotes keep the margin they were built with.
+
+`PRICING_LLM_MODEL` optionally points the pricing agent at a stronger model than the front agent; it defaults to `LLM_MODEL`. Quotes are available at `GET /api/quotes` and in the dashboard. Approval and delivery are the next phase.
+
 ## Setup
 
 ```bash
@@ -70,6 +80,8 @@ LLM_PROVIDER=openai-compatible
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_API_KEY=your-key
 LLM_MODEL=gpt-4o-mini
+# Optional: a stronger model for the pricing agent
+PRICING_LLM_MODEL=gpt-4.1-mini
 ```
 
 `OPENAI_BASE_URL` can point to any compatible provider, including a local server. `AGENT_MAX_STEPS`, `AGENT_MAX_HISTORY`, `AGENT_TEMPERATURE`, and `LLM_TIMEOUT_MS` bound model execution and context size.

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { openDatabase } from '../src/db/database.js';
+import { publishPriceTable } from '../src/db/repositories/pricing.js';
 import { MockLLMProvider } from '../src/llm/mock.js';
 import { SupportEngine } from '../src/engine/support-engine.js';
 
@@ -10,6 +11,8 @@ interface Expectation {
   replyMatches?: string;
   hasRequestId?: boolean;
   nonEmptyReply?: boolean;
+  quoteCreated?: boolean;
+  quoteMinTotalPaise?: number;
 }
 
 interface GoldenCase {
@@ -36,12 +39,21 @@ function createEngine(): SupportEngine {
     temperature: 0,
     tenantId: 'eval',
   });
-  engine.createService({
+  const liveChat = engine.createService({
     name: 'Live Chat Support',
     description: 'Real-time assistance for account and product questions.',
     category: 'support',
     status: 'available',
     availability_note: 'Mon-Fri 09:00-18:00',
+  });
+  publishPriceTable(db, {
+    serviceId: liveChat.id,
+    sourceFilename: 'eval-live-chat.csv',
+    uploadedBy: null,
+    items: [
+      { item_code: 'LC-SETUP', description: 'Live Chat Support setup', unit: 'project', unit_price_paise: 1_000_000 },
+      { item_code: 'LC-HOUR', description: 'Live Chat Support hourly support', unit: 'hour', unit_price_paise: 100_000 },
+    ],
   });
   engine.createFaq({
     question: 'What is your refund policy?',
@@ -74,6 +86,18 @@ for (const c of cases) {
   }
   if (c.expect.nonEmptyReply && !result.reply.trim()) {
     problems.push('empty reply');
+  }
+  if (c.expect.quoteCreated) {
+    const quoteId = result.data?.quoteId;
+    if (typeof quoteId !== 'number') {
+      problems.push('missing quoteId');
+    } else if (c.expect.quoteMinTotalPaise !== undefined) {
+      const found = engine.getQuote(quoteId);
+      if (!found) problems.push('quote not found');
+      else if (found.quote.total_paise < c.expect.quoteMinTotalPaise) {
+        problems.push(`quote total ${found.quote.total_paise} below ${c.expect.quoteMinTotalPaise}`);
+      }
+    }
   }
 
   if (problems.length === 0) {

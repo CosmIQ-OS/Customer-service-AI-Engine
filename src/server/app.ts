@@ -8,6 +8,7 @@ import type { AdminAuth } from '../auth/admin-auth.js';
 import { createAuthRouter } from '../auth/routes.js';
 import { requireAdmin, requireWebhookSecret } from '../auth/http.js';
 import { createPricingRouter } from './pricing-routes.js';
+import { createQuoteRouter } from './quote-routes.js';
 
 export interface AppOptions {
   auth: AdminAuth;
@@ -57,6 +58,7 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
 
   app.use('/api', requireAdmin(options.auth));
   app.use('/api', createPricingRouter(engine.db));
+  app.use('/api', createQuoteRouter(engine));
 
   app.get('/api/dashboard/summary', (_req, res) => {
     const services = engine.listServices();

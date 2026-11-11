@@ -39,7 +39,7 @@
     "channel": "telegram",
     "externalUserId": "eval-user-6",
     "text": "Company: Acme Robotics; Size: 120 employees; Tools: Slack and Notion; Service: Live Chat Support",
-    "expect": { "intent": "intake", "replyMatches": "pricing team" }
+    "expect": { "intent": "intake", "replyMatches": "pricing team", "quoteCreated": true, "quoteMinTotalPaise": 1300000 }
   },
   {
     "id": "intake-partial",

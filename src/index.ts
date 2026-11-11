@@ -8,26 +8,31 @@ import { createApp } from './server/app.js';
 import { loadConfig } from './config/index.js';
 import { createLLMProvider } from './llm/index.js';
 import { AdminAuth } from './auth/admin-auth.js';
+import { ensureQuoteMarginSetting } from './db/repositories/settings.js';
 
 const config = loadConfig();
 
 export function bootstrap() {
   const db = openDatabase(config.DB_PATH);
   const auth = new AdminAuth(db, { sessionHours: config.ADMIN_SESSION_HOURS });
+  const llm = createLLMProvider(config);
   const engine = new SupportEngine(db, {
     sessionTtlMinutes: config.SESSION_TTL_MINUTES,
-    llm: createLLMProvider(config),
+    llm,
     model: config.LLM_MODEL,
     maxSteps: config.AGENT_MAX_STEPS,
     maxHistory: config.AGENT_MAX_HISTORY,
     temperature: config.AGENT_TEMPERATURE,
     tenantId: config.TENANT_ID,
+    pricingLlm: llm,
+    pricingModel: config.PRICING_LLM_MODEL ?? config.LLM_MODEL,
   });
 
   engine.adapters.register(new TelegramAdapter());
   engine.adapters.register(new WhatsAppAdapter());
 
   seedIfEmpty(engine);
+  ensureQuoteMarginSetting(db, config.QUOTE_MARGIN_PERCENT);
 
   if (!auth.hasAdmins()) {
     console.warn('[auth] No admin accounts exist. Create one with: npm run admin:create -- <username>');
@@ -44,6 +49,7 @@ export function bootstrap() {
     console.log(`[support-engine] API + dashboard server listening on http://localhost:${config.PORT}`);
     console.log(`[support-engine] DB: ${config.DB_PATH}`);
     console.log(`[support-engine] LLM: ${config.LLM_PROVIDER} / ${config.LLM_MODEL}`);
+    console.log(`[support-engine] Pricing model: ${config.PRICING_LLM_MODEL ?? config.LLM_MODEL}`);
   });
 
   for (const adapter of engine.adapters.list()) {

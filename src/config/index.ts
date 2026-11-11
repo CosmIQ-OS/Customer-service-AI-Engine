@@ -13,6 +13,11 @@ const envSchema = z.object({
   OPENAI_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
   OPENAI_API_KEY: z.string().optional(),
   LLM_MODEL: z.string().min(1).default('gpt-4o-mini'),
+  PRICING_LLM_MODEL: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().min(1).optional(),
+  ),
+  PRICING_AGENT_TEMPERATURE: z.coerce.number().min(0).max(1).default(0),
   LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   AGENT_MAX_STEPS: z.coerce.number().int().min(1).max(20).default(6),
   AGENT_MAX_HISTORY: z.coerce.number().int().min(2).max(100).default(12),

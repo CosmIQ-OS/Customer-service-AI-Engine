@@ -9,7 +9,11 @@ import * as messagesRepo from '../db/repositories/messages.js';
 import * as tracesRepo from '../db/repositories/traces.js';
 import * as sessionsRepo from '../db/repositories/sessions.js';
 import * as intakeRepo from '../db/repositories/intake.js';
+import * as quotesRepo from '../db/repositories/quotes.js';
+import * as settingsRepo from '../db/repositories/settings.js';
 import { detectLanguage } from '../intake/language.js';
+import { PricingAgent } from '../pricing/pricing-agent.js';
+import { QuoteBuilder, type BuiltQuote } from '../pricing/quote-builder.js';
 import { AdapterRegistry } from './channels/adapter.js';
 import { guardPrice } from './price-guard.js';
 import { AgentLoop, type AgentRunResult, type ExecutedToolCall } from '../kernel/agent-loop.js';
@@ -25,12 +29,16 @@ export interface EngineConfig {
   maxHistory: number;
   temperature: number;
   tenantId: string;
+  pricingLlm?: LLMProvider;
+  pricingModel?: string;
 }
 
 export class SupportEngine {
   readonly sessions: SessionStore;
   readonly adapters = new AdapterRegistry();
   readonly agentLoop: AgentLoop;
+  readonly pricingAgent: PricingAgent;
+  readonly quoteBuilder: QuoteBuilder;
 
   constructor(readonly db: DB, private readonly config: EngineConfig) {
     this.sessions = new SessionStore(db, config.sessionTtlMinutes);
@@ -42,6 +50,8 @@ export class SupportEngine {
       maxSteps: config.maxSteps,
       temperature: config.temperature,
     });
+    this.pricingAgent = new PricingAgent(config.pricingLlm ?? config.llm, config.pricingModel ?? config.model);
+    this.quoteBuilder = new QuoteBuilder(db, this.pricingAgent);
   }
 
   listServices() { return servicesRepo.listServices(this.db); }
@@ -57,6 +67,49 @@ export class SupportEngine {
   listTraces(limit?: number) { return tracesRepo.listTraces(this.db, limit); }
   listIntakes(limit?: number) { return intakeRepo.listIntakes(this.db, limit); }
   getIntake(sessionId: string) { return intakeRepo.getIntake(this.db, sessionId); }
+  listQuotes(limit?: number) { return quotesRepo.listQuotes(this.db, limit); }
+  getQuote(id: number) {
+    const quote = quotesRepo.getQuote(this.db, id);
+    return quote ? { quote, items: quotesRepo.listQuoteItems(this.db, id) } : undefined;
+  }
+  getLatestQuote(sessionId: string) { return quotesRepo.latestQuoteForSession(this.db, sessionId); }
+  getQuoteMarginPercent() { return settingsRepo.getQuoteMarginPercent(this.db); }
+  setQuoteMarginPercent(value: number, adminId: number | null) {
+    return settingsRepo.setQuoteMarginPercent(this.db, value, adminId);
+  }
+
+  /** Builds a quote with the pricing agent. Returns the existing quote unless force is set. */
+  async buildQuoteForSession(sessionId: string, options: { force?: boolean } = {}): Promise<BuiltQuote> {
+    const intake = intakeRepo.getIntake(this.db, sessionId);
+    if (!intake) throw new Error('No intake found for this session.');
+    if (intake.status !== 'complete') throw new Error('The intake is not complete yet.');
+
+    if (!options.force) {
+      const existing = quotesRepo.latestQuoteForSession(this.db, sessionId);
+      if (existing) return { quote: existing, items: quotesRepo.listQuoteItems(this.db, existing.id) };
+    }
+
+    const history = messagesRepo.listRecentMessages(this.db, sessionId, this.config.maxHistory);
+    const marginPercent = settingsRepo.getQuoteMarginPercent(this.db);
+    const built = await this.quoteBuilder.build({ intake, history, marginPercent });
+
+    logsRepo.createLog(this.db, {
+      channel: intake.channel,
+      external_user_id: intake.external_user_id,
+      session_id: sessionId,
+      direction: 'system',
+      event: 'quote.created',
+      message: `Created quote ${built.quote.quote_number}.`,
+      payload: {
+        quoteId: built.quote.id,
+        serviceId: built.quote.service_id,
+        subtotalPaise: built.quote.subtotal_paise,
+        totalPaise: built.quote.total_paise,
+        marginPercent,
+      },
+    });
+    return built;
+  }
 
   async handleMessage(msg: InboundMessage): Promise<EngineResponse> {
     const startedAt = Date.now();
@@ -98,7 +151,32 @@ export class SupportEngine {
     try {
       const history = messagesRepo.listRecentMessages(this.db, session.id, this.config.maxHistory);
       const result = await this.agentLoop.run({ session, history, tenantId: this.config.tenantId });
-      return this.completeTurn(session, msg, result, startedAt);
+      const response = this.completeTurn(session, msg, result, startedAt);
+
+      const intake = intakeRepo.getIntake(this.db, session.id);
+      if (intake?.status === 'complete') {
+        const existing = quotesRepo.latestQuoteForSession(this.db, session.id);
+        if (existing) {
+          response.data = { ...response.data, quoteId: existing.id, quoteNumber: existing.quote_number };
+        } else if (response.intent === 'intake') {
+          try {
+            const built = await this.buildQuoteForSession(session.id);
+            response.data = { ...response.data, quoteId: built.quote.id, quoteNumber: built.quote.quote_number };
+          } catch (error) {
+            logsRepo.createLog(this.db, {
+              channel: msg.channel,
+              external_user_id: msg.externalUserId,
+              session_id: session.id,
+              direction: 'system',
+              event: 'quote.failed',
+              message: 'Could not prepare a quote automatically.',
+              payload: { error: error instanceof Error ? error.message : String(error) },
+            });
+          }
+        }
+      }
+
+      return response;
     } catch (error) {
       return this.failTurn(session, msg, error, startedAt);
     }

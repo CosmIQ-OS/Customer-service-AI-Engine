@@ -1,4 +1,5 @@
 import type { ChatReply, ChatRequest, LLMProvider, ToolCall } from './types.js';
+import { PRICING_AGENT_MARKER } from './prompts.js';
 
 const ZERO_USAGE = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
 
@@ -19,6 +20,11 @@ const MISSING_TEXT: Record<string, string> = {
 /** Deterministic provider for local development and regression tests. */
 export class MockLLMProvider implements LLMProvider {
   async chat(request: ChatRequest): Promise<ChatReply> {
+    const system = request.messages[0];
+    if (system?.role === 'system' && system.content.startsWith(PRICING_AGENT_MARKER)) {
+      return reply(mockPricingSelection(request));
+    }
+
     const lastUserIndex = request.messages.map((message) => message.role).lastIndexOf('user');
     const userText = lastUserIndex >= 0 ? request.messages[lastUserIndex].content : '';
     const turnMessages = lastUserIndex >= 0 ? request.messages.slice(lastUserIndex + 1) : [];
@@ -86,6 +92,42 @@ function parseIntakeFields(text: string): Record<string, string> | undefined {
 
 function wantsIntakeRecall(text: string): boolean {
   return /\b(what (do you|have you) (know|got)|my (details|intake)|what did i (tell|share))\b/.test(text);
+}
+
+/** Deterministic pricing selection: match conversation words against the provided catalog. */
+function mockPricingSelection(request: ChatRequest): string {
+  const content = request.messages[request.messages.length - 1]?.content ?? '';
+  const conversation = content.split('Customer conversation:')[1]?.split('Available price table')[0] ?? '';
+  const catalogSection = content.split('Available price table')[1] ?? '';
+  const catalog = catalogSection
+    .split('\n')
+    .map((line) => line.split('\t'))
+    .filter((parts) => parts.length >= 4 && /^\d+(\.\d+)?$/.test(parts[3].trim()))
+    .map(([code, description, unit]) => ({ code, description, unit }));
+
+  if (catalog.length === 0) {
+    return JSON.stringify({ items: [], notes: 'No price items were available.' });
+  }
+
+  const tokens = new Set(
+    (conversation.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((token) => token.length >= 3),
+  );
+  const scored = catalog.map((item) => {
+    const words = `${item.code} ${item.description} ${item.unit}`.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+    const score = words.filter((word) => word.length >= 3 && tokens.has(word)).length;
+    return { item, score };
+  });
+  const matches = scored.filter((entry) => entry.score > 0);
+  const chosen = (matches.length > 0 ? matches : [scored[0]]).map((entry) => entry.item);
+
+  return JSON.stringify({
+    items: chosen.map((item) => ({
+      item_code: item.code,
+      quantity: 1,
+      reason: 'Matched the customer request against the price table.',
+    })),
+    notes: 'Deterministic mock selection from the active price table.',
+  });
 }
 
 function intakeReply(observation: string, userText: string): string {
