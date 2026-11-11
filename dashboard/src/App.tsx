@@ -3,6 +3,7 @@ import { api, ApiError, type AdminMe } from './api';
 import { LoginView } from './Login';
 import { PriceTables } from './PriceTables';
 import { Quotes } from './Quotes';
+import { Approvals } from './Approvals';
 
 type AnyRow = Record<string, any>;
 
@@ -138,6 +139,13 @@ export function App() {
               ]}
             />
           </section>
+
+          <Approvals
+            refreshKey={dataVersion}
+            onChanged={() => {
+              void load();
+            }}
+          />
 
           <Quotes refreshKey={dataVersion} />
 

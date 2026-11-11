@@ -16,6 +16,8 @@ describe('quote API', () => {
   let server: Server;
   let base: string;
   let cookie: string;
+  let quoteId: number;
+  let quoteSessionId: string;
 
   before(async () => {
     db = openDatabase(':memory:');
@@ -121,6 +123,8 @@ describe('quote API', () => {
     const simulated = await sim.json() as { intent: string; sessionId: string; data: { quoteId?: number } };
     assert.equal(simulated.intent, 'intake');
     assert.equal(typeof simulated.data.quoteId, 'number');
+    quoteId = simulated.data.quoteId as number;
+    quoteSessionId = simulated.sessionId;
 
     const list = await fetch(`${base}/api/quotes`, { headers: { cookie } });
     const quotes = ((await list.json()) as { quotes: Array<{ id: number; margin_percent: number }> }).quotes;
@@ -156,5 +160,109 @@ describe('quote API', () => {
       body: JSON.stringify({ sessionId: 'no-such-session' }),
     });
     assert.equal(missing.status, 422);
+  });
+
+  it('queues the quote for approval and exposes the alert in the dashboard feed', async () => {
+    const res = await fetch(`${base}/api/approvals`, { headers: { cookie } });
+    assert.equal(res.status, 200);
+    const body = await res.json() as {
+      pending: Array<{ id: number; status: string; expires_at: string | null }>;
+      counts: { pending: number; unread: number; windowHours: number };
+      notifications: Array<{ kind: string; quote_id: number; read_at: string | null }>;
+    };
+    assert.equal(body.pending.length, 1);
+    assert.equal(body.pending[0].id, quoteId);
+    assert.equal(body.pending[0].status, 'pending_approval');
+    assert.ok(body.pending[0].expires_at);
+    assert.deepEqual(
+      { pending: body.counts.pending, unread: body.counts.unread, windowHours: body.counts.windowHours },
+      { pending: 1, unread: 1, windowHours: 6 },
+    );
+    assert.equal(body.notifications[0].kind, 'quote_approval');
+    assert.equal(body.notifications[0].quote_id, quoteId);
+    assert.equal(body.notifications[0].read_at, null);
+
+    const readAll = await fetch(`${base}/api/notifications/read-all`, { method: 'POST', headers: { cookie } });
+    assert.equal((await readAll.json() as { updated: number }).updated, 1);
+    const after = await fetch(`${base}/api/approvals`, { headers: { cookie } });
+    assert.equal((await after.json() as { counts: { unread: number } }).counts.unread, 0);
+  });
+
+  it('lets admins edit quantities and margin before approving, then delivers an itemized quote', async () => {
+    const edited = await fetch(`${base}/api/quotes/${quoteId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ marginPercent: 35, items: [{ id: 1, quantity: 2 }] }),
+    });
+    assert.equal(edited.status, 200);
+    const editedBody = await edited.json() as {
+      quote: { margin_percent: number; subtotal_paise: number; total_paise: number };
+      items: Array<{ item_code: string; quantity: number; admin_unit_price_paise: number; quoted_unit_price_paise: number }>;
+    };
+    assert.equal(editedBody.quote.margin_percent, 35);
+    assert.equal(editedBody.quote.subtotal_paise, 1_000_000);
+    assert.equal(editedBody.items[0].quantity, 2);
+    assert.equal(editedBody.items[0].admin_unit_price_paise, 500_000);
+    assert.equal(editedBody.items[0].quoted_unit_price_paise, 675_000);
+    assert.equal(editedBody.quote.total_paise, 1_350_000);
+
+    const approved = await fetch(`${base}/api/quotes/${quoteId}/approve`, {
+      method: 'POST',
+      headers: { cookie },
+    });
+    assert.equal(approved.status, 200);
+    const approvedBody = await approved.json() as {
+      quote: { status: string; total_paise: number };
+      message: string;
+      delivered: boolean;
+    };
+    assert.equal(approvedBody.quote.status, 'approved');
+    assert.equal(approvedBody.quote.total_paise, 1_350_000);
+    assert.equal(approvedBody.delivered, false);
+    assert.match(approvedBody.message, /WF-2/);
+    assert.match(approvedBody.message, /Total: ₹13,500\.00/);
+
+    const again = await fetch(`${base}/api/quotes/${quoteId}/approve`, { method: 'POST', headers: { cookie } });
+    assert.equal(again.status, 422);
+
+    const after = await fetch(`${base}/api/approvals`, { headers: { cookie } });
+    const afterBody = await after.json() as { pending: unknown[]; counts: { unread: number } };
+    assert.equal(afterBody.pending.length, 0);
+    assert.equal(afterBody.counts.unread, 0);
+  });
+
+  it('rejects a quote with a price-free handoff message and records the internal note', async () => {
+    const sim = await fetch(`${base}/api/chat/simulate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({
+        channel: 'telegram',
+        externalUserId: 'quote-api-user-2',
+        text: 'Company: Reject Co; Size: 8 people; Tools: Excel; Service: Workflow Automation',
+      }),
+    });
+    const simulated = await sim.json() as { data: { quoteId?: number } };
+    const secondId = simulated.data.quoteId as number;
+    assert.equal(typeof secondId, 'number');
+
+    const rejected = await fetch(`${base}/api/quotes/${secondId}/reject`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ note: 'Budget too small for this scope.' }),
+    });
+    assert.equal(rejected.status, 200);
+    const body = await rejected.json() as {
+      quote: { status: string; decision_note: string };
+      message: string;
+    };
+    assert.equal(body.quote.status, 'rejected');
+    assert.equal(body.quote.decision_note, 'Budget too small for this scope.');
+    assert.equal(body.message.includes('₹'), false);
+    assert.match(body.message, /specialist will follow up/i);
+
+    const detail = await fetch(`${base}/api/quotes/${secondId}`, { headers: { cookie } });
+    const detailBody = await detail.json() as { quote: { decision_note: string; status: string } };
+    assert.equal(detailBody.quote.status, 'rejected');
+    assert.equal(detailBody.quote.decision_note, 'Budget too small for this scope.');
   });
 });

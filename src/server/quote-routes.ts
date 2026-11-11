@@ -12,6 +12,27 @@ const buildSchema = z.object({
   force: z.boolean().optional(),
 });
 
+const editSchema = z
+  .object({
+    marginPercent: z.number().min(MIN_QUOTE_MARGIN).max(MAX_QUOTE_MARGIN).optional(),
+    items: z
+      .array(
+        z.object({
+          id: z.number().int().positive(),
+          quantity: z.number().positive().max(100_000),
+        }),
+      )
+      .max(100)
+      .optional(),
+  })
+  .refine((value) => value.marginPercent !== undefined || (value.items?.length ?? 0) > 0, {
+    message: 'Send a marginPercent or item quantities.',
+  });
+
+const rejectSchema = z.object({
+  note: z.string().max(1000).optional().default(''),
+});
+
 export function createQuoteRouter(engine: SupportEngine): Router {
   const router = Router();
 
@@ -35,12 +56,33 @@ export function createQuoteRouter(engine: SupportEngine): Router {
     res.json({ quotes: engine.listQuotes(limit) });
   });
 
-  router.get('/quotes/:id', (req, res) => {
+  router.get('/approvals', (_req, res) => {
+    res.json({
+      pending: engine.listPendingApprovals(),
+      counts: engine.approvalSummary(),
+      notifications: engine.listNotifications({ limit: 25 }),
+    });
+  });
+
+  router.get('/notifications', (req, res) => {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const unreadOnly = req.query.unread === '1' || req.query.unread === 'true';
+    res.json({
+      notifications: engine.listNotifications({ limit, unreadOnly }),
+      unread: engine.approvalSummary().unread,
+    });
+  });
+
+  router.post('/notifications/read-all', (_req, res) => {
+    res.json({ updated: engine.markAllNotificationsRead() });
+  });
+
+  router.post('/notifications/:id/read', (req, res) => {
     const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid quote id' });
-    const found = engine.getQuote(id);
-    if (!found) return res.status(404).json({ error: 'Quote not found' });
-    res.json(found);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid notification id' });
+    const notification = engine.markNotificationRead(id);
+    if (!notification) return res.status(404).json({ error: 'Notification not found' });
+    res.json(notification);
   });
 
   router.post('/quotes/build', async (req, res) => {
@@ -54,7 +96,72 @@ export function createQuoteRouter(engine: SupportEngine): Router {
     }
   });
 
+  router.get('/quotes/:id', (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid quote id' });
+    const found = engine.getQuote(id);
+    if (!found) return res.status(404).json({ error: 'Quote not found' });
+    res.json(found);
+  });
+
+  router.patch('/quotes/:id', (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid quote id' });
+    const parsed = editSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: `Send a margin between ${MIN_QUOTE_MARGIN} and ${MAX_QUOTE_MARGIN} or item quantities.`,
+      });
+    }
+    const quantities = parsed.data.items
+      ? Object.fromEntries(parsed.data.items.map((item) => [item.id, item.quantity]))
+      : undefined;
+    try {
+      const updated = engine.editQuote(
+        id,
+        { marginPercent: parsed.data.marginPercent, quantities },
+        res.locals.admin?.id ?? null,
+      );
+      res.json(updated);
+    } catch (error) {
+      res.status(quoteErrorStatus(error)).json({ error: quoteErrorMessage(error) });
+    }
+  });
+
+  router.post('/quotes/:id/approve', async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid quote id' });
+    try {
+      const result = await engine.approveQuote(id, res.locals.admin?.id ?? null);
+      res.json(result);
+    } catch (error) {
+      res.status(quoteErrorStatus(error)).json({ error: quoteErrorMessage(error) });
+    }
+  });
+
+  router.post('/quotes/:id/reject', async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid quote id' });
+    const parsed = rejectSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: 'The rejection note is too long.' });
+    try {
+      const result = await engine.rejectQuote(id, res.locals.admin?.id ?? null, parsed.data.note);
+      res.json(result);
+    } catch (error) {
+      res.status(quoteErrorStatus(error)).json({ error: quoteErrorMessage(error) });
+    }
+  });
+
   return router;
+}
+
+function quoteErrorStatus(error: unknown): number {
+  const message = quoteErrorMessage(error);
+  return /not found/i.test(message) ? 404 : 422;
+}
+
+function quoteErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Could not update the quote.';
 }
 
 function settingsPayload(engine: SupportEngine) {

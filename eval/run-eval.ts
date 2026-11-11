@@ -13,6 +13,7 @@ interface Expectation {
   nonEmptyReply?: boolean;
   quoteCreated?: boolean;
   quoteMinTotalPaise?: number;
+  quotePendingApproval?: boolean;
 }
 
 interface GoldenCase {
@@ -97,6 +98,15 @@ for (const c of cases) {
       else if (found.quote.total_paise < c.expect.quoteMinTotalPaise) {
         problems.push(`quote total ${found.quote.total_paise} below ${c.expect.quoteMinTotalPaise}`);
       }
+    }
+  }
+  if (c.expect.quotePendingApproval) {
+    const found = engine.getQuote(result.data?.quoteId as number);
+    if (!found) problems.push('quote not found');
+    else if (found.quote.status !== 'pending_approval') {
+      problems.push(`quote status ${found.quote.status} is not pending_approval`);
+    } else if (!found.quote.expires_at) {
+      problems.push('pending quote has no approval deadline');
     }
   }
 

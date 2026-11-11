@@ -14,6 +14,7 @@ src/
   tools/                  # Services, FAQs, requests, profile, intake, escalation
   intake/                 # Intake fields and language detection
   pricing/                # Price-table parsing, pricing agent, quote builder, margin
+  approvals/              # Approval workflow, reminders, customer quote messages
   memory/                 # Four-tier memory (Phase 2)
   engine/                 # Channel-agnostic orchestration and session store
   adapters/               # Telegram and WhatsApp channel adapters
@@ -64,7 +65,21 @@ When an intake is complete, a separate pricing agent selects the required line i
 
 The markup is editable at any time between 30% and 35% in the dashboard or with `PUT /api/settings/quote-margin`. `QUOTE_MARGIN_PERCENT` only seeds the starting value; changing the environment variable later does not overwrite an admin's saved choice. Existing quotes keep the margin they were built with.
 
-`PRICING_LLM_MODEL` optionally points the pricing agent at a stronger model than the front agent; it defaults to `LLM_MODEL`. Quotes are available at `GET /api/quotes` and in the dashboard. Approval and delivery are the next phase.
+`PRICING_LLM_MODEL` optionally points the pricing agent at a stronger model than the front agent; it defaults to `LLM_MODEL`. Quotes are available at `GET /api/quotes` and in the dashboard.
+
+### Approval and delivery
+
+Every new quote enters the admin approval queue as `pending_approval` with a six-hour window (`QUOTE_APPROVAL_WINDOW_HOURS`). Admins review it in the dashboard Approval Queue, can change line quantities and the 30–35% margin, and then approve or reject it. Item codes, descriptions, units, and admin prices stay locked to the uploaded price table. The server checks every minute and, when the window lapses without a decision, stores a new admin alert and sends the customer a price-free holding update. Reminders repeat every six hours until a decision; the quote never expires on its own.
+
+Approving sends the customer an itemized quote in INR through the channel adapter (stub-logged until Telegram is live). Rejecting sends a price-free message that a specialist will follow up, and keeps any internal note with the quote. Admin alerts are stored in `admin_notifications` and shown in the dashboard; the same records will feed Telegram alerts in the Telegram phase.
+
+Approval endpoints:
+
+- `GET /api/approvals` — pending quotes, counts, recent alerts
+- `PATCH /api/quotes/:id` — quantities and/or margin before approval
+- `POST /api/quotes/:id/approve` — approve and deliver the itemized quote
+- `POST /api/quotes/:id/reject` — reject with an optional internal note
+- `GET /api/notifications`, `POST /api/notifications/:id/read`, `POST /api/notifications/read-all`
 
 ## Setup
 

@@ -26,6 +26,7 @@ export function bootstrap() {
     tenantId: config.TENANT_ID,
     pricingLlm: llm,
     pricingModel: config.PRICING_LLM_MODEL ?? config.LLM_MODEL,
+    approvalWindowHours: config.QUOTE_APPROVAL_WINDOW_HOURS,
   });
 
   engine.adapters.register(new TelegramAdapter());
@@ -50,13 +51,34 @@ export function bootstrap() {
     console.log(`[support-engine] DB: ${config.DB_PATH}`);
     console.log(`[support-engine] LLM: ${config.LLM_PROVIDER} / ${config.LLM_MODEL}`);
     console.log(`[support-engine] Pricing model: ${config.PRICING_LLM_MODEL ?? config.LLM_MODEL}`);
+    console.log(`[support-engine] Quote approval window: ${config.QUOTE_APPROVAL_WINDOW_HOURS}h`);
   });
+
+  startApprovalScheduler(engine);
 
   for (const adapter of engine.adapters.list()) {
     adapter.connect?.().catch((err) => console.error(`[${adapter.channel}] connect error`, err));
   }
 
   return { db, engine, app };
+}
+
+/** Checks every minute for quotes that need an admin reminder; also catches up once on startup. */
+export function startApprovalScheduler(engine: SupportEngine, intervalMs = 60_000): () => void {
+  const tick = () => {
+    engine
+      .processDueApprovals()
+      .then((result) => {
+        if (result.realerted > 0) {
+          console.log(`[approvals] Re-alerted admins about ${result.realerted} quote(s).`);
+        }
+      })
+      .catch((error) => console.error('[approvals] reminder check failed', error));
+  };
+  tick();
+  const timer = setInterval(tick, intervalMs);
+  timer.unref();
+  return () => clearInterval(timer);
 }
 
 const COSMIQ_SERVICES = [

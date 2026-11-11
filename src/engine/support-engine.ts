@@ -10,10 +10,18 @@ import * as tracesRepo from '../db/repositories/traces.js';
 import * as sessionsRepo from '../db/repositories/sessions.js';
 import * as intakeRepo from '../db/repositories/intake.js';
 import * as quotesRepo from '../db/repositories/quotes.js';
+import type { QuoteRecord } from '../db/repositories/quotes.js';
 import * as settingsRepo from '../db/repositories/settings.js';
+import * as notificationsRepo from '../db/repositories/notifications.js';
 import { detectLanguage } from '../intake/language.js';
 import { PricingAgent } from '../pricing/pricing-agent.js';
 import { QuoteBuilder, type BuiltQuote } from '../pricing/quote-builder.js';
+import { ApprovalService, toSqlTimestamp } from '../approvals/approval-service.js';
+import {
+  approvalHoldingMessage,
+  approvedQuoteMessage,
+  rejectedQuoteMessage,
+} from '../approvals/messages.js';
 import { AdapterRegistry } from './channels/adapter.js';
 import { guardPrice } from './price-guard.js';
 import { AgentLoop, type AgentRunResult, type ExecutedToolCall } from '../kernel/agent-loop.js';
@@ -31,6 +39,9 @@ export interface EngineConfig {
   tenantId: string;
   pricingLlm?: LLMProvider;
   pricingModel?: string;
+  /** Hours before the first admin reminder and between repeats. Defaults to 6. */
+  approvalWindowHours?: number;
+  now?: () => Date;
 }
 
 export class SupportEngine {
@@ -39,6 +50,7 @@ export class SupportEngine {
   readonly agentLoop: AgentLoop;
   readonly pricingAgent: PricingAgent;
   readonly quoteBuilder: QuoteBuilder;
+  readonly approvals: ApprovalService;
 
   constructor(readonly db: DB, private readonly config: EngineConfig) {
     this.sessions = new SessionStore(db, config.sessionTtlMinutes);
@@ -52,6 +64,10 @@ export class SupportEngine {
     });
     this.pricingAgent = new PricingAgent(config.pricingLlm ?? config.llm, config.pricingModel ?? config.model);
     this.quoteBuilder = new QuoteBuilder(db, this.pricingAgent);
+    this.approvals = new ApprovalService(db, {
+      windowHours: config.approvalWindowHours,
+      now: config.now,
+    });
   }
 
   listServices() { return servicesRepo.listServices(this.db); }
@@ -78,7 +94,7 @@ export class SupportEngine {
     return settingsRepo.setQuoteMarginPercent(this.db, value, adminId);
   }
 
-  /** Builds a quote with the pricing agent. Returns the existing quote unless force is set. */
+  /** Builds a quote with the pricing agent and queues it for admin approval. */
   async buildQuoteForSession(sessionId: string, options: { force?: boolean } = {}): Promise<BuiltQuote> {
     const intake = intakeRepo.getIntake(this.db, sessionId);
     if (!intake) throw new Error('No intake found for this session.');
@@ -86,7 +102,10 @@ export class SupportEngine {
 
     if (!options.force) {
       const existing = quotesRepo.latestQuoteForSession(this.db, sessionId);
-      if (existing) return { quote: existing, items: quotesRepo.listQuoteItems(this.db, existing.id) };
+      if (existing) {
+        const queued = existing.status === 'draft' ? this.approvals.submit(existing.id) : existing;
+        return { quote: queued, items: quotesRepo.listQuoteItems(this.db, queued.id) };
+      }
     }
 
     const history = messagesRepo.listRecentMessages(this.db, sessionId, this.config.maxHistory);
@@ -108,7 +127,130 @@ export class SupportEngine {
         marginPercent,
       },
     });
-    return built;
+
+    const queued = this.approvals.submit(built.quote.id);
+    return { quote: queued, items: quotesRepo.listQuoteItems(this.db, queued.id) };
+  }
+
+  listPendingApprovals(limit?: number) { return this.approvals.listPending(limit); }
+
+  approvalSummary() {
+    return {
+      pending: quotesRepo.countPendingApprovals(this.db),
+      unread: notificationsRepo.unreadNotificationCount(this.db),
+      windowHours: this.approvals.window,
+    };
+  }
+
+  listNotifications(options: { limit?: number; unreadOnly?: boolean } = {}) {
+    return notificationsRepo.listNotifications(this.db, options);
+  }
+
+  markNotificationRead(id: number) { return notificationsRepo.markNotificationRead(this.db, id); }
+  markAllNotificationsRead() { return notificationsRepo.markAllNotificationsRead(this.db); }
+
+  /** Admin edit before approval: quantities and margin only, line identity and admin prices stay locked. */
+  editQuote(
+    id: number,
+    input: { marginPercent?: number; quantities?: Record<number, number> },
+    adminId: number | null,
+  ) {
+    const quote = quotesRepo.getQuote(this.db, id);
+    if (!quote) throw new Error('Quote not found.');
+    const updated = quotesRepo.updateQuotePricing(this.db, id, {
+      marginPercent: input.marginPercent ?? quote.margin_percent,
+      quantities: input.quantities,
+    });
+    const items = quotesRepo.listQuoteItems(this.db, id);
+    logsRepo.createLog(this.db, {
+      channel: updated.channel,
+      external_user_id: updated.external_user_id,
+      session_id: updated.session_id,
+      direction: 'system',
+      event: 'quote.edited',
+      message: `Admin updated quote ${updated.quote_number}.`,
+      payload: {
+        quoteId: id,
+        adminId,
+        marginPercent: updated.margin_percent,
+        totalPaise: updated.total_paise,
+      },
+    });
+    return { quote: updated, items };
+  }
+
+  async approveQuote(id: number, adminId: number | null) {
+    const quote = this.approvals.decide(id, 'approved', adminId);
+    const items = quotesRepo.listQuoteItems(this.db, id);
+    const message = approvedQuoteMessage(quote, items);
+    const delivered = await this.deliverQuoteMessage(quote, message, 'quote.delivered');
+    return { quote: quotesRepo.getQuote(this.db, id) ?? quote, items, message, delivered };
+  }
+
+  async rejectQuote(id: number, adminId: number | null, note = '') {
+    const quote = this.approvals.decide(id, 'rejected', adminId, note);
+    const items = quotesRepo.listQuoteItems(this.db, id);
+    const message = rejectedQuoteMessage(quote);
+    const delivered = await this.deliverQuoteMessage(quote, message, 'quote.handoff_sent');
+    return { quote: quotesRepo.getQuote(this.db, id) ?? quote, items, message, delivered };
+  }
+
+  /** Reminds admins about overdue quotes and sends the customer a price-free holding update. */
+  async processDueApprovals(): Promise<{ realerted: number }> {
+    const due = this.approvals.due();
+    for (const quote of due) {
+      const { quote: updated } = this.approvals.reAlert(quote.id);
+      await this.deliverQuoteMessage(updated, approvalHoldingMessage(updated), 'quote.holding_sent');
+    }
+    return { realerted: due.length };
+  }
+
+  private async deliverQuoteMessage(quote: QuoteRecord, text: string, event: string): Promise<boolean> {
+    const sessionId = quote.session_id ?? '';
+    messagesRepo.appendMessage(this.db, {
+      session_id: sessionId,
+      channel: quote.channel,
+      external_user_id: quote.external_user_id,
+      role: 'assistant',
+      content: text,
+      tenant_id: this.config.tenantId,
+    });
+
+    let delivered = false;
+    const adapter = this.adapters.get(quote.channel);
+    if (adapter) {
+      try {
+        await adapter.sendMessage(quote.external_user_id, {
+          reply: text,
+          intent: 'quote',
+          sessionId,
+          data: { quoteId: quote.id, quoteNumber: quote.quote_number, status: quote.status },
+        });
+        delivered = true;
+      } catch (error) {
+        logsRepo.createLog(this.db, {
+          channel: quote.channel,
+          external_user_id: quote.external_user_id,
+          session_id: quote.session_id,
+          direction: 'system',
+          event: 'quote.delivery_failed',
+          message: `Could not deliver quote ${quote.quote_number} to the customer.`,
+          payload: { quoteId: quote.id, error: error instanceof Error ? error.message : String(error) },
+        });
+      }
+    }
+    if (delivered) quotesRepo.markQuoteDelivered(this.db, quote.id, toSqlTimestamp(new Date()));
+
+    logsRepo.createLog(this.db, {
+      channel: quote.channel,
+      external_user_id: quote.external_user_id,
+      session_id: quote.session_id,
+      direction: 'outbound',
+      event,
+      message: text,
+      payload: { quoteId: quote.id, status: quote.status, delivered },
+    });
+    return delivered;
   }
 
   async handleMessage(msg: InboundMessage): Promise<EngineResponse> {

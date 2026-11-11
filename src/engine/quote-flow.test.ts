@@ -69,7 +69,7 @@ function createEngine() {
 }
 
 describe('quote flow', () => {
-  it('creates a draft quote with the configured markup when intake completes', async () => {
+  it('creates a pending-approval quote with the configured markup when intake completes', async () => {
     const { engine } = createEngine();
     const result = await engine.handleMessage({
       channel: 'telegram',
@@ -83,7 +83,7 @@ describe('quote flow', () => {
 
     const found = engine.getQuote(quoteId as number);
     assert.ok(found);
-    assert.equal(found.quote.status, 'draft');
+    assert.equal(found.quote.status, 'pending_approval');
     assert.equal(found.quote.margin_percent, 30);
     assert.match(found.quote.quote_number, /^Q-\d{4}-\d{4,}$/);
     assert.deepEqual(found.items.map((item) => item.item_code), ['WF-2']);
@@ -94,6 +94,11 @@ describe('quote flow', () => {
     assert.equal(found.quote.total_paise, 650_000);
     assert.equal(found.quote.margin_paise, 150_000);
     assert.equal(found.quote.currency, 'INR');
+    assert.ok(found.quote.expires_at, 'pending quotes carry the approval deadline');
+    assert.equal(found.quote.expires_at, found.quote.next_alert_at);
+    assert.equal(engine.approvalSummary().pending, 1);
+    assert.equal(engine.approvalSummary().unread, 1);
+    assert.ok(engine.listLogs(20).some((log) => log.event === 'quote.pending_approval'));
   });
 
   it('reuses the existing quote instead of creating duplicates', async () => {
@@ -130,7 +135,7 @@ describe('quote flow', () => {
     assert.equal(found.quote.total_paise, 135_000);
   });
 
-  it('rebuilds on request and keeps both versions', async () => {
+  it('rebuilds on request, supersedes the old draft, and keeps both versions', async () => {
     const { engine } = createEngine();
     const result = await engine.handleMessage({
       channel: 'web',
@@ -143,6 +148,8 @@ describe('quote flow', () => {
     assert.notEqual(rebuilt.quote.id, firstId);
     assert.equal(engine.listQuotes(10).length, 2);
     assert.equal(rebuilt.quote.margin_percent, 30);
+    assert.equal(engine.getQuote(firstId)?.quote.status, 'superseded');
+    assert.equal(rebuilt.quote.status, 'pending_approval');
   });
 
   it('logs a failure and sends the reply when the service has no price table', async () => {
