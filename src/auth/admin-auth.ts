@@ -60,8 +60,17 @@ export class AdminAuth {
     return { id: record.id, username: record.username, display_name: record.display_name };
   }
 
-  async login(username: string, password: string, clientKey: string, now = Date.now()): Promise<LoginResult> {
-    if (password.length > MAX_PASSWORD_LENGTH) return { ok: false, reason: 'invalid' };
+  async setPassword(username: string, password: string): Promise<void> {
+    if (password.length < MIN_PASSWORD_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
+      throw new Error(`Password must be ${MIN_PASSWORD_LENGTH}-${MAX_PASSWORD_LENGTH} characters.`);
+    }
+    const credentials = adminsRepo.findAdminCredentials(this.db, username);
+    if (!credentials) throw new Error(`Admin "${username}" not found.`);
+    adminsRepo.updateAdminPassword(this.db, credentials.id, await hashPassword(password));
+    adminsRepo.deleteAdminSessions(this.db, credentials.id);
+  }
+
+  async login(username: string, password: string, clientKey: string, now = Date.now()): Promise<LoginResult> {    if (password.length > MAX_PASSWORD_LENGTH) return { ok: false, reason: 'invalid' };
     const key = `${clientKey}|${username.toLowerCase()}`;
     if (this.isLocked(key, now)) return { ok: false, reason: 'locked' };
 

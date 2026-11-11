@@ -81,3 +81,12 @@ export function deleteExpiredSessions(db: DB, nowIso: string): void {
 export function touchLastLogin(db: DB, id: number, nowIso: string): void {
   db.prepare('UPDATE admin_users SET last_login_at = ? WHERE id = ?').run(nowIso, id);
 }
+
+export function updateAdminPassword(db: DB, id: number, passwordHash: string): boolean {
+  const info = db.prepare('UPDATE admin_users SET password_hash = ? WHERE id = ?').run(passwordHash, id);
+  return info.changes > 0;
+}
+
+export function deleteAdminSessions(db: DB, adminId: number): void {
+  db.prepare('DELETE FROM admin_sessions WHERE admin_id = ?').run(adminId);
+}

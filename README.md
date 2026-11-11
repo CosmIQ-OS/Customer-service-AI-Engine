@@ -45,8 +45,16 @@ The agent accesses business data only through tools:
 - `create_support_request` — persistent support request with a real ID.
 - `get_customer_profile` — current customer/session context.
 - `escalate_to_human` — escalation request and session handoff state.
+- `save_intake` — company name, company size, current tools, and service wanted.
+- `get_intake` — recall the intake details already collected for the session.
 
 Adding a capability means adding a tool and registering it in `src/tools/index.ts`; the channel adapters and HTTP API do not change.
+
+### Service intake
+
+The front agent collects four details before a quote can be prepared: company name, company size, current tools, and the Cosmiq service the customer wants. The detected language is stored on the session and included in the system prompt, and intake rows are visible to admins in the dashboard and at `GET /api/intakes`.
+
+The front agent never states a price. A deterministic guard also checks each reply and replaces any reply containing a currency amount with a price-free holding message, logging a `price.blocked` event.
 
 ## Setup
 
@@ -75,7 +83,14 @@ read -s ADMIN_PASSWORD && export ADMIN_PASSWORD
 npm run admin:create -- <username> "<display name>"
 ```
 
-Passwords must be 12–256 characters. Five failed sign-ins for the same user and client within 15 minutes lock that pair for the rest of the window. Channel webhooks (`POST /api/channels/:channel/inbound`) use the `x-webhook-secret` header set to `CHANNEL_WEBHOOK_SECRET` instead of an admin session.
+Passwords must be 12–256 characters. Five failed sign-ins for the same user and client within 15 minutes lock that pair for the rest of the window. To reset a forgotten password (this also signs out that admin's existing sessions):
+
+```bash
+read -s ADMIN_PASSWORD && export ADMIN_PASSWORD
+npm run admin:passwd -- <username>
+```
+
+Channel webhooks (`POST /api/channels/:channel/inbound`) use the `x-webhook-secret` header set to `CHANNEL_WEBHOOK_SECRET` instead of an admin session.
 
 Set `COOKIE_SECURE=true` when the dashboard is served over HTTPS, for example through a Cloudflare tunnel.
 

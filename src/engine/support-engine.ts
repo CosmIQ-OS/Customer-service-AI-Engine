@@ -8,7 +8,10 @@ import * as logsRepo from '../db/repositories/logs.js';
 import * as messagesRepo from '../db/repositories/messages.js';
 import * as tracesRepo from '../db/repositories/traces.js';
 import * as sessionsRepo from '../db/repositories/sessions.js';
+import * as intakeRepo from '../db/repositories/intake.js';
+import { detectLanguage } from '../intake/language.js';
 import { AdapterRegistry } from './channels/adapter.js';
+import { guardPrice } from './price-guard.js';
 import { AgentLoop, type AgentRunResult, type ExecutedToolCall } from '../kernel/agent-loop.js';
 import { createSupportTools } from '../tools/index.js';
 import type { LLMProvider } from '../llm/types.js';
@@ -52,10 +55,27 @@ export class SupportEngine {
   listSessions(limit?: number) { return sessionsRepo.listSessions(this.db, limit); }
   listMessages(sessionId: string, limit?: number) { return messagesRepo.listMessages(this.db, sessionId, limit); }
   listTraces(limit?: number) { return tracesRepo.listTraces(this.db, limit); }
+  listIntakes(limit?: number) { return intakeRepo.listIntakes(this.db, limit); }
+  getIntake(sessionId: string) { return intakeRepo.getIntake(this.db, sessionId); }
 
   async handleMessage(msg: InboundMessage): Promise<EngineResponse> {
     const startedAt = Date.now();
-    const session = this.sessions.getOrCreate(msg.channel, msg.externalUserId);
+    let session = this.sessions.getOrCreate(msg.channel, msg.externalUserId);
+    const language = detectLanguage(msg.text);
+    if (session.context.language !== language.code) {
+      session = this.sessions.update(session, {
+        context: { ...session.context, language: language.code, languageLabel: language.label },
+      });
+      if (intakeRepo.getIntake(this.db, session.id)) {
+        intakeRepo.upsertIntake(this.db, {
+          sessionId: session.id,
+          channel: session.channel,
+          externalUserId: session.external_user_id,
+          tenantId: this.config.tenantId,
+          patch: { language: language.code },
+        });
+      }
+    }
     logsRepo.createLog(this.db, {
       channel: msg.channel,
       external_user_id: msg.externalUserId,
@@ -93,12 +113,25 @@ export class SupportEngine {
     const intent = detectToolIntent(result.toolCalls);
     const requestId = findRequestId(result.toolCalls);
     const escalated = result.toolCalls.some((call) => call.name === 'escalate_to_human' && call.result);
+    const guarded = guardPrice(result.reply);
+    const reply = guarded.reply;
+    if (guarded.blocked) {
+      logsRepo.createLog(this.db, {
+        channel: msg.channel,
+        external_user_id: msg.externalUserId,
+        session_id: session.id,
+        direction: 'system',
+        event: 'price.blocked',
+        message: 'Blocked an agent reply that contained pricing before sending it.',
+        payload: { intent },
+      });
+    }
     const assistantMessage = messagesRepo.appendMessage(this.db, {
       session_id: session.id,
       channel: msg.channel,
       external_user_id: msg.externalUserId,
       role: 'assistant',
-      content: result.reply,
+      content: reply,
       tenant_id: this.config.tenantId,
     });
     const updatedSession = this.sessions.update(session, {
@@ -107,7 +140,7 @@ export class SupportEngine {
       context: {
         ...session.context,
         lastMessage: msg.text,
-        lastReply: result.reply,
+        lastReply: reply,
         lastSeenAt: new Date().toISOString(),
         messageCount: Number(session.context.messageCount ?? 0) + 1,
         ...(escalated ? { pendingHandoff: true } : {}),
@@ -132,12 +165,12 @@ export class SupportEngine {
       request_id: requestId ?? null,
       direction: 'outbound',
       event: 'message.sent',
-      message: result.reply,
-      payload: { intent },
+      message: reply,
+      payload: { intent, priceBlocked: guarded.blocked },
     });
 
     return {
-      reply: result.reply,
+      reply,
       intent,
       sessionId: updatedSession.id,
       requestId,
@@ -145,6 +178,7 @@ export class SupportEngine {
         model: this.config.model,
         steps: result.steps,
         usage: result.usage,
+        priceBlocked: guarded.blocked,
         toolCalls: result.toolCalls.map(serializeToolCall),
       },
     };
@@ -208,6 +242,7 @@ function detectToolIntent(calls: ExecutedToolCall[]): string {
   const names = new Set(calls.map((call) => call.name));
   if (names.has('escalate_to_human')) return 'escalation';
   if (names.has('create_support_request')) return 'support_request';
+  if (names.has('save_intake') || names.has('get_intake')) return 'intake';
   if (names.has('list_services')) return 'services';
   if (names.has('search_faq')) return 'faq';
   return 'assistant';

@@ -33,5 +33,26 @@
     "externalUserId": "eval-user-5",
     "text": "Hello",
     "expect": { "intent": "assistant", "nonEmptyReply": true }
+  },
+  {
+    "id": "intake-complete",
+    "channel": "telegram",
+    "externalUserId": "eval-user-6",
+    "text": "Company: Acme Robotics; Size: 120 employees; Tools: Slack and Notion; Service: Live Chat Support",
+    "expect": { "intent": "intake", "replyMatches": "pricing team" }
+  },
+  {
+    "id": "intake-partial",
+    "channel": "whatsapp",
+    "externalUserId": "eval-user-7",
+    "text": "Company: Beta Labs",
+    "expect": { "intent": "intake", "replyMatches": "company size" }
+  },
+  {
+    "id": "hindi-greeting",
+    "channel": "telegram",
+    "externalUserId": "eval-user-8",
+    "text": "नमस्ते, मुझे मदद चाहिए",
+    "expect": { "intent": "assistant", "nonEmptyReply": true }
   }
 ]

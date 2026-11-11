@@ -79,4 +79,20 @@ describe('AdminAuth', () => {
     const otherClient = await auth.login('owner', PASSWORD, 'other-ip', now);
     assert.equal(otherClient.ok, true);
   });
+
+  it('resets a password, signs out existing sessions, and rejects unknown users', async () => {
+    const auth = createAuth();
+    await auth.createAdmin('owner', PASSWORD);
+    const before = await auth.login('owner', PASSWORD, 'ip');
+    assert.equal(before.ok, true);
+    if (!before.ok) return;
+
+    await auth.setPassword('owner', 'a-brand-new-password');
+    assert.equal(auth.resolve(before.token), undefined);
+    assert.deepEqual(await auth.login('owner', PASSWORD, 'ip'), { ok: false, reason: 'invalid' });
+    assert.equal((await auth.login('owner', 'a-brand-new-password', 'ip')).ok, true);
+
+    await assert.rejects(auth.setPassword('nobody', 'a-brand-new-password'), /not found/);
+    await assert.rejects(auth.setPassword('owner', 'short'), /characters/);
+  });
 });

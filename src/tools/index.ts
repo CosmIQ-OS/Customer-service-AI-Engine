@@ -4,6 +4,7 @@ import { searchFaqTool } from './faqs.js';
 import { createSupportRequestTool } from './requests.js';
 import { getCustomerProfileTool } from './profile.js';
 import { escalateToHumanTool } from './escalation.js';
+import { getIntakeTool, saveIntakeTool } from './intake.js';
 
 export function createSupportTools(): ToolRegistry {
   return new ToolRegistry()
@@ -11,5 +12,7 @@ export function createSupportTools(): ToolRegistry {
     .register(searchFaqTool)
     .register(createSupportRequestTool)
     .register(getCustomerProfileTool)
-    .register(escalateToHumanTool);
+    .register(escalateToHumanTool)
+    .register(saveIntakeTool)
+    .register(getIntakeTool);
 }

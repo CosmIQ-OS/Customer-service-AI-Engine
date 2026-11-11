@@ -129,6 +129,29 @@ describe('admin API protection', () => {
     });
     assert.equal(res.status, 503);
   });
+
+  it('serves collected intakes to signed-in admins', async () => {
+    const cookie = extractCookie((await login(harness.base, 'owner', PASSWORD)).headers.get('set-cookie') ?? '');
+    const sim = await fetch(`${harness.base}/api/chat/simulate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({
+        channel: 'telegram',
+        externalUserId: 'api-intake-user',
+        text: 'Company: API Co; Size: 40 people; Tools: Slack; Service: Live Chat Support',
+      }),
+    });
+    assert.equal(sim.status, 200);
+    assert.equal(((await sim.json()) as { intent: string }).intent, 'intake');
+
+    const res = await fetch(`${harness.base}/api/intakes`, { headers: { cookie } });
+    assert.equal(res.status, 200);
+    const rows = await res.json() as Array<{ external_user_id: string; company_name: string; company_size: string; status: string }>;
+    const row = rows.find((record) => record.external_user_id === 'api-intake-user');
+    assert.equal(row?.company_name, 'API Co');
+    assert.equal(row?.company_size, '40 people');
+    assert.equal(row?.status, 'complete');
+  });
 });
 
 function login(base: string, username: string, password: string): Promise<Response> {

@@ -22,6 +22,7 @@ export function App() {
   const [requests, setRequests] = useState<AnyRow[]>([]);
   const [logs, setLogs] = useState<AnyRow[]>([]);
   const [services, setServices] = useState<AnyRow[]>([]);
+  const [intakes, setIntakes] = useState<AnyRow[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [sim, setSim] = useState({ channel: 'telegram', externalUserId: 'demo-user', text: 'What services are available?' });
@@ -32,16 +33,18 @@ export function App() {
     setLoading(true);
     setError('');
     try {
-      const [s, r, l, sv] = await Promise.all([
+      const [s, r, l, sv, int] = await Promise.all([
         api<any>('/api/dashboard/summary'),
         api<AnyRow[]>('/api/requests?limit=50'),
         api<AnyRow[]>('/api/logs?limit=80'),
         api<AnyRow[]>('/api/services'),
+        api<AnyRow[]>('/api/intakes?limit=100'),
       ]);
       setSummary(s);
       setRequests(r);
       setLogs(l);
       setServices(sv);
+      setIntakes(int);
     } catch (e: any) {
       if (e instanceof ApiError && e.status === 401) {
         setAdmin(null);
@@ -114,6 +117,25 @@ export function App() {
 
       <div className="grid main-grid">
         <div className="stack">
+          <section className="card">
+            <h2 className="panel-title">Service Intakes <span>company and tools collected</span></h2>
+            <Table
+              cols={['Channel', 'User', 'Company', 'Size', 'Current tools', 'Service', 'Lang', 'Status', 'Updated']}
+              rows={intakes}
+              render={(r) => [
+                <Pill>{r.channel}</Pill>,
+                <span className="mono">{r.external_user_id}</span>,
+                <strong>{r.company_name || '—'}</strong>,
+                <span className="small">{r.company_size || '—'}</span>,
+                <span className="small">{r.current_tools || '—'}</span>,
+                <span className="small">{r.service_name || '—'}</span>,
+                <Pill>{r.language || '—'}</Pill>,
+                <Pill tone={r.status === 'complete' ? 'orange' : undefined}>{r.status}</Pill>,
+                <span className="muted small">{fmtTime(r.updated_at)}</span>,
+              ]}
+            />
+          </section>
+
           <section className="card">
             <h2 className="panel-title">Chat Requests <span>from conversations</span></h2>
             <Table

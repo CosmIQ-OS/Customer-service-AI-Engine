@@ -63,6 +63,7 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
     const requests = engine.listRequests(500);
     const logs = engine.listLogs(500);
     const faqs = engine.listFaqs();
+    const intakes = engine.listIntakes(500);
     res.json({
       counts: {
         services: services.length,
@@ -71,6 +72,8 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
         openRequests: requests.filter((r) => r.status === 'open').length,
         logs: logs.length,
         faqs: faqs.filter((f) => f.enabled).length,
+        intakes: intakes.length,
+        completeIntakes: intakes.filter((i) => i.status === 'complete').length,
       },
       recentRequests: requests.slice(0, 8),
       recentLogs: logs.slice(0, 10),
@@ -115,6 +118,7 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
     res.json(engine.listMessages(req.params.id, Number(req.query.limit) || 100));
   });
   app.get('/api/traces', (req, res) => res.json(engine.listTraces(Number(req.query.limit) || 100)));
+  app.get('/api/intakes', (req, res) => res.json(engine.listIntakes(Number(req.query.limit) || 100)));
 
   app.post('/api/chat/simulate', async (req, res) => {
     const parsed = z.object({
