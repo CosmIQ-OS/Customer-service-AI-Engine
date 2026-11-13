@@ -222,6 +222,8 @@ The WhatsApp adapter sends through the Meta WhatsApp Business Cloud API when `WH
 
 ## Deployment
 
+See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the full runbook: prerequisites, configuration, local run, Docker deployment, live Telegram testing, and troubleshooting.
+
 ```bash
 docker compose up -d --build            # engine on port 3001, data in a named volume
 docker compose --profile tunnel up -d   # adds cloudflared when CLOUDFLARE_TUNNEL_TOKEN is set

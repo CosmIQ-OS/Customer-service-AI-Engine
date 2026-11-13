@@ -8,11 +8,10 @@ services:
     environment:
       PORT: "3001"
       DB_PATH: /app/data/support.db
-      COOKIE_SECURE: "true"
+    ports:
+      - "3001:3001"
     volumes:
       - engine-data:/app/data
-    expose:
-      - "3001"
     security_opt:
       - no-new-privileges:true
     cap_drop:
