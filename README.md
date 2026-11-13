@@ -239,4 +239,4 @@ The image builds the dashboard, installs the backend, and exposes a `/api/health
 - **Done — live conversations:** WhatsApp-style admin panel, one-hour idle timeout, pause AI, take over, and hand back.
 - **Done — Telegram:** real bot delivery and admin alerts.
 - **Done — deployment:** self-hosted Docker and cloudflared.
-- **Next — verification:** full end-to-end check before production.
+- **Done — verification:** unit tests, typecheck, dashboard build, browser checks, golden-conversation eval, and dependency audit all green.
