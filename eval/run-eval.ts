@@ -14,6 +14,7 @@ interface Expectation {
   quoteCreated?: boolean;
   quoteMinTotalPaise?: number;
   quotePendingApproval?: boolean;
+  emptyReply?: boolean;
 }
 
 interface GoldenCase {
@@ -21,6 +22,8 @@ interface GoldenCase {
   channel: string;
   externalUserId: string;
   text: string;
+  /** Runs before the measured turn, e.g. to hand the conversation to a human. */
+  setup?: Array<{ text: string; action?: 'takeover' | 'handback' | 'pause' }>;
   expect: Expectation;
 }
 
@@ -69,6 +72,19 @@ const failures: string[] = [];
 
 for (const c of cases) {
   const engine = createEngine();
+  let sessionId = '';
+  for (const step of c.setup ?? []) {
+    const setupResult = await engine.handleMessage({
+      channel: c.channel as never,
+      externalUserId: c.externalUserId,
+      text: step.text,
+    });
+    sessionId = setupResult.sessionId;
+    if (step.action === 'takeover') engine.takeOverConversation(sessionId, null, 'Eval Admin');
+    if (step.action === 'handback') engine.handBackConversation(sessionId, null);
+    if (step.action === 'pause') engine.pauseAi(sessionId);
+  }
+
   const result = await engine.handleMessage({
     channel: c.channel as never,
     externalUserId: c.externalUserId,
@@ -87,6 +103,9 @@ for (const c of cases) {
   }
   if (c.expect.nonEmptyReply && !result.reply.trim()) {
     problems.push('empty reply');
+  }
+  if (c.expect.emptyReply && result.reply.trim()) {
+    problems.push(`expected no reply while a human owns the chat, got "${result.reply.slice(0, 60)}"`);
   }
   if (c.expect.quoteCreated) {
     const quoteId = result.data?.quoteId;

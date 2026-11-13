@@ -9,6 +9,7 @@ import { createAuthRouter } from '../auth/routes.js';
 import { requireAdmin, requireWebhookSecret } from '../auth/http.js';
 import { createPricingRouter } from './pricing-routes.js';
 import { createQuoteRouter } from './quote-routes.js';
+import { createConversationRouter } from './conversation-routes.js';
 
 export interface AppOptions {
   auth: AdminAuth;
@@ -52,13 +53,15 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
     const msg = adapter.normalize(req.body.payload ?? req.body);
     if (!msg) return res.status(400).json({ error: 'Could not normalize payload' });
     const result = await engine.handleMessage(msg);
-    await adapter.sendMessage(msg.externalUserId, result);
+    // An empty reply means a human owns the conversation, so nothing is sent.
+    if (result.reply.trim()) await adapter.sendMessage(msg.externalUserId, result);
     res.json(result);
   });
 
   app.use('/api', requireAdmin(options.auth));
   app.use('/api', createPricingRouter(engine.db));
   app.use('/api', createQuoteRouter(engine));
+  app.use('/api', createConversationRouter(engine));
 
   app.get('/api/dashboard/summary', (_req, res) => {
     const services = engine.listServices();

@@ -23,6 +23,7 @@ import {
   rejectedQuoteMessage,
 } from '../approvals/messages.js';
 import { AdapterRegistry } from './channels/adapter.js';
+import { ConversationService, DEFAULT_IDLE_MINUTES } from './conversations/conversation-service.js';
 import { guardPrice } from './price-guard.js';
 import { AgentLoop, type AgentRunResult, type ExecutedToolCall } from '../kernel/agent-loop.js';
 import { createSupportTools } from '../tools/index.js';
@@ -41,6 +42,8 @@ export interface EngineConfig {
   pricingModel?: string;
   /** Hours before the first admin reminder and between repeats. Defaults to 6. */
   approvalWindowHours?: number;
+  /** Minutes a human-owned conversation may stay idle before it closes. Defaults to 60. */
+  conversationIdleMinutes?: number;
   now?: () => Date;
 }
 
@@ -51,9 +54,16 @@ export class SupportEngine {
   readonly pricingAgent: PricingAgent;
   readonly quoteBuilder: QuoteBuilder;
   readonly approvals: ApprovalService;
+  readonly conversations: ConversationService;
 
   constructor(readonly db: DB, private readonly config: EngineConfig) {
     this.sessions = new SessionStore(db, config.sessionTtlMinutes);
+    this.conversations = new ConversationService({
+      db,
+      tenantId: config.tenantId,
+      idleMinutes: config.conversationIdleMinutes ?? DEFAULT_IDLE_MINUTES,
+      now: config.now,
+    });
     this.agentLoop = new AgentLoop({
       db,
       llm: config.llm,
@@ -129,6 +139,12 @@ export class SupportEngine {
     });
 
     const queued = this.approvals.submit(built.quote.id);
+    void this.alertOperators(
+      `Quote ${queued.quote_number} is waiting for approval.\n` +
+        `Service: ${queued.service_name}\n` +
+        `Customer: ${queued.external_user_id} (${queued.channel})\n` +
+        `Total: ${(queued.total_paise / 100).toFixed(2)} INR at ${queued.margin_percent}% margin.`,
+    );
     return { quote: queued, items: quotesRepo.listQuoteItems(this.db, queued.id) };
   }
 
@@ -148,6 +164,60 @@ export class SupportEngine {
 
   markNotificationRead(id: number) { return notificationsRepo.markNotificationRead(this.db, id); }
   markAllNotificationsRead() { return notificationsRepo.markAllNotificationsRead(this.db); }
+
+  /** Live conversations: who answers, what is waiting, and the idle sweep. */
+  listConversations(limit?: number) { return this.conversations.list(limit); }
+  listConversationsNeedingHuman(limit?: number) { return this.conversations.listNeedingHuman(limit); }
+  getConversation(sessionId: string) { return this.conversations.get(sessionId); }
+  getConversationSummary(sessionId: string) { return this.conversations.summary(sessionId); }
+  pauseAi(sessionId: string) { return this.conversations.pauseAi(sessionId); }
+  takeOverConversation(sessionId: string, adminId: number | null, agentName?: string) {
+    return this.conversations.takeOver(sessionId, adminId, agentName);
+  }
+  handBackConversation(sessionId: string, adminId: number | null) {
+    return this.conversations.handBack(sessionId, adminId);
+  }
+  async sendAdminReply(sessionId: string, adminId: number | null, text: string) {
+    return this.conversations.sendAdminReply(sessionId, adminId, text, (channel, externalUserId, body) =>
+      this.deliverToCustomer(channel, externalUserId, body),
+    );
+  }
+  closeIdleConversations() { return this.conversations.closeIdleConversations(); }
+
+  /** Broadcasts an operational alert to every channel that supports operator alerts. */
+  async alertOperators(text: string): Promise<number> {
+    let sent = 0;
+    for (const adapter of this.adapters.list()) {
+      if (!adapter.notifyAdmins) continue;
+      try {
+        sent += await adapter.notifyAdmins(text);
+      } catch (error) {
+        logsRepo.createLog(this.db, {
+          channel: adapter.channel,
+          external_user_id: 'operators',
+          session_id: null,
+          direction: 'system',
+          event: 'alert.delivery_failed',
+          message: `Could not send an operator alert on ${adapter.channel}.`,
+          payload: { error: error instanceof Error ? error.message : String(error) },
+        });
+      }
+    }
+    return sent;
+  }
+
+  /** Sends a message to a customer through the channel adapter, without touching the transcript. */
+  private async deliverToCustomer(channel: string, externalUserId: string, text: string): Promise<boolean> {
+    const adapter = this.adapters.get(channel);
+    if (!adapter) return false;
+    await adapter.sendMessage(externalUserId, {
+      reply: text,
+      intent: 'human_reply',
+      sessionId: '',
+      data: { source: 'admin_panel' },
+    });
+    return true;
+  }
 
   /** Admin edit before approval: quantities and margin only, line identity and admin prices stay locked. */
   editQuote(
@@ -290,6 +360,28 @@ export class SupportEngine {
       tenant_id: this.config.tenantId,
     });
 
+    this.conversations.recordInbound(session, msg.text, displayNameFrom(msg.metadata));
+
+    // A human owns this conversation: record the message and let the agent wait.
+    if (!this.conversations.isAiActive(session.id)) {
+      const conversation = this.conversations.get(session.id);
+      logsRepo.createLog(this.db, {
+        channel: msg.channel,
+        external_user_id: msg.externalUserId,
+        session_id: session.id,
+        direction: 'system',
+        event: 'conversation.held',
+        message: 'AI did not reply because a human owns this conversation.',
+        payload: { mode: conversation?.mode ?? 'human' },
+      });
+      return {
+        reply: '',
+        intent: 'awaiting_human',
+        sessionId: session.id,
+        data: { mode: conversation?.mode ?? 'human', held: true },
+      };
+    }
+
     try {
       const history = messagesRepo.listRecentMessages(this.db, session.id, this.config.maxHistory);
       const result = await this.agentLoop.run({ session, history, tenantId: this.config.tenantId });
@@ -333,6 +425,14 @@ export class SupportEngine {
     const intent = detectToolIntent(result.toolCalls);
     const requestId = findRequestId(result.toolCalls);
     const escalated = result.toolCalls.some((call) => call.name === 'escalate_to_human' && call.result);
+    if (escalated) {
+      void this.alertOperators(
+        `A customer asked for a human on ${session.channel}.\n` +
+          `Customer: ${session.external_user_id}\n` +
+          `Message: ${msg.text.slice(0, 400)}\n` +
+          `Open it in the dashboard and take over the conversation.`,
+      );
+    }
     const guarded = guardPrice(result.reply);
     const reply = guarded.reply;
     if (guarded.blocked) {
@@ -366,6 +466,7 @@ export class SupportEngine {
         ...(escalated ? { pendingHandoff: true } : {}),
       },
     });
+    this.conversations.recordOutbound(updatedSession, reply);
     tracesRepo.createTrace(this.db, {
       session_id: session.id,
       message_id: assistantMessage.id,
@@ -472,6 +573,17 @@ function findRequestId(calls: ExecutedToolCall[]): number | undefined {
   for (const call of calls) {
     const result = call.result as { requestId?: unknown } | undefined;
     if (typeof result?.requestId === 'number') return result.requestId;
+  }
+  return undefined;
+}
+
+/** Best-effort display name from channel metadata (Telegram username, WhatsApp profile name). */
+function displayNameFrom(metadata?: Record<string, unknown>): string | undefined {
+  if (!metadata) return undefined;
+  const profile = metadata.profile as { name?: string } | undefined;
+  const candidates = [metadata.username, metadata.name, profile?.name];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim().slice(0, 120);
   }
   return undefined;
 }

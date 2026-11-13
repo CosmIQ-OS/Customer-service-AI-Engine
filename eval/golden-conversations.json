@@ -54,5 +54,28 @@
     "externalUserId": "eval-user-8",
     "text": "नमस्ते, मुझे मदद चाहिए",
     "expect": { "intent": "assistant", "nonEmptyReply": true }
+  },
+  {
+    "id": "human-hold",
+    "channel": "whatsapp",
+    "externalUserId": "eval-user-9",
+    "text": "Are you still there?",
+    "setup": [
+      { "text": "Hello, I need help with my account" },
+      { "text": "handing over", "action": "takeover" }
+    ],
+    "expect": { "intent": "awaiting_human", "emptyReply": true }
+  },
+  {
+    "id": "handback-resumes-ai",
+    "channel": "telegram",
+    "externalUserId": "eval-user-10",
+    "text": "What services are available?",
+    "setup": [
+      { "text": "Hello, I need help" },
+      { "text": "handing over", "action": "takeover" },
+      { "text": "back to the bot", "action": "handback" }
+    ],
+    "expect": { "intent": "services", "replyMatches": "Live Chat Support: available" }
   }
 ]

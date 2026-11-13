@@ -152,6 +152,50 @@ describe('admin API protection', () => {
     assert.equal(row?.company_size, '40 people');
     assert.equal(row?.status, 'complete');
   });
+
+  it('lets an admin take over a conversation, reply, and hand it back', async () => {
+    const cookie = extractCookie((await login(harness.base, 'owner', PASSWORD)).headers.get('set-cookie') ?? '');
+    const sim = await fetch(`${harness.base}/api/chat/simulate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ channel: 'web', externalUserId: 'api-live-user', text: 'Hello, I need help.' }),
+    });
+    assert.equal(sim.status, 200);
+    const sessionId = ((await sim.json()) as { sessionId: string }).sessionId;
+
+    const takeOver = await fetch(`${harness.base}/api/conversations/${sessionId}/takeover`, {
+      method: 'POST',
+      headers: { cookie },
+    });
+    assert.equal(takeOver.status, 200);
+    assert.equal(((await takeOver.json()) as { mode: string }).mode, 'human');
+
+    const waiting = await fetch(`${harness.base}/api/conversations/needing-human`, { headers: { cookie } });
+    const waitingRows = (await waiting.json()) as { conversations: Array<{ sessionId: string; mode: string }> };
+    assert.ok(waitingRows.conversations.some((row) => row.sessionId === sessionId));
+
+    const reply = await fetch(`${harness.base}/api/conversations/${sessionId}/reply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ text: 'A specialist is on the way.' }),
+    });
+    assert.equal(reply.status, 200);
+
+    const messages = await fetch(`${harness.base}/api/conversations/${sessionId}/messages`, { headers: { cookie } });
+    const thread = (await messages.json()) as { messages: Array<{ role: string; content: string }> };
+    assert.ok(thread.messages.some((message) => message.role === 'human'));
+
+    const handBack = await fetch(`${harness.base}/api/conversations/${sessionId}/handback`, {
+      method: 'POST',
+      headers: { cookie },
+    });
+    assert.equal(((await handBack.json()) as { mode: string }).mode, 'ai');
+  });
+
+  it('requires an admin session for the conversation routes', async () => {
+    const res = await fetch(`${harness.base}/api/conversations`);
+    assert.equal(res.status, 401);
+  });
 });
 
 function login(base: string, username: string, password: string): Promise<Response> {

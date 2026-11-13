@@ -4,6 +4,7 @@ import { LoginView } from './Login';
 import { PriceTables } from './PriceTables';
 import { Quotes } from './Quotes';
 import { Approvals } from './Approvals';
+import { LiveConversations } from './LiveConversations';
 
 type AnyRow = Record<string, any>;
 
@@ -121,6 +122,8 @@ export function App() {
 
       <div className="grid main-grid">
         <div className="stack">
+          <LiveConversations />
+
           <section className="card">
             <h2 className="panel-title">Service Intakes <span>company and tools collected</span></h2>
             <Table

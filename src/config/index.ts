@@ -31,6 +31,14 @@ const envSchema = z.object({
   QUOTE_MARGIN_PERCENT: z.coerce.number().min(30).max(35).default(30),
   QUOTE_APPROVAL_WINDOW_HOURS: z.coerce.number().positive().max(72).default(6),
   CONVERSATION_IDLE_MINUTES: z.coerce.number().int().min(1).max(1440).default(60),
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_ADMIN_CHAT_IDS: z.string().optional(),
+  TELEGRAM_POLLING: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  WHATSAPP_ACCESS_TOKEN: z.string().optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

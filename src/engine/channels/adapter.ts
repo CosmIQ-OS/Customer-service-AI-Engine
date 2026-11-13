@@ -1,5 +1,8 @@
 import type { EngineResponse, InboundMessage } from '../types.js';
 
+/** Handles a normalized inbound message and returns the reply for the channel. */
+export type InboundHandler = (message: InboundMessage) => Promise<EngineResponse>;
+
 export interface ChannelAdapter {
   readonly channel: string;
   /** Connect to the external platform (polling/webhook setup). Optional for stubs. */
@@ -10,6 +13,10 @@ export interface ChannelAdapter {
   sendMessage(externalUserId: string, response: EngineResponse): Promise<void>;
   /** Normalize a platform-specific payload into an InboundMessage. */
   normalize(payload: unknown): InboundMessage | null;
+  /** Attach the engine handler so the adapter can drive conversations itself. */
+  bind?(handler: InboundHandler): void;
+  /** Send an operational alert to the channel's operators, when the channel supports it. */
+  notifyAdmins?(text: string): Promise<number>;
 }
 
 export class AdapterRegistry {

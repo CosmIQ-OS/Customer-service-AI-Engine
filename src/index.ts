@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { fileURLToPath } from 'node:url';
 import { openDatabase } from './db/database.js';
 import { SupportEngine } from './engine/support-engine.js';
-import { TelegramAdapter } from './adapters/telegram.js';
+import { TelegramAdapter, parseAdminChatIds } from './adapters/telegram.js';
 import { WhatsAppAdapter } from './adapters/whatsapp.js';
 import { createApp } from './server/app.js';
 import { loadConfig } from './config/index.js';
@@ -27,10 +27,23 @@ export function bootstrap() {
     pricingLlm: llm,
     pricingModel: config.PRICING_LLM_MODEL ?? config.LLM_MODEL,
     approvalWindowHours: config.QUOTE_APPROVAL_WINDOW_HOURS,
+    conversationIdleMinutes: config.CONVERSATION_IDLE_MINUTES,
   });
 
-  engine.adapters.register(new TelegramAdapter());
-  engine.adapters.register(new WhatsAppAdapter());
+  const telegram = new TelegramAdapter({
+    token: config.TELEGRAM_BOT_TOKEN,
+    adminChatIds: parseAdminChatIds(config.TELEGRAM_ADMIN_CHAT_IDS),
+    polling: config.TELEGRAM_POLLING,
+  });
+  const whatsapp = new WhatsAppAdapter({
+    accessToken: config.WHATSAPP_ACCESS_TOKEN,
+    phoneNumberId: config.WHATSAPP_PHONE_NUMBER_ID,
+  });
+  engine.adapters.register(telegram);
+  engine.adapters.register(whatsapp);
+  for (const adapter of engine.adapters.list()) {
+    adapter.bind?.((message) => engine.handleMessage(message));
+  }
 
   seedIfEmpty(engine);
   ensureQuoteMarginSetting(db, config.QUOTE_MARGIN_PERCENT);
@@ -55,12 +68,31 @@ export function bootstrap() {
   });
 
   startApprovalScheduler(engine);
+  startConversationScheduler(engine);
 
   for (const adapter of engine.adapters.list()) {
-    adapter.connect?.().catch((err) => console.error(`[${adapter.channel}] connect error`, err));
+    adapter.connect?.().catch((err) => console.error('[%s] connect error', adapter.channel, err));
   }
 
   return { db, engine, app };
+}
+
+/** Closes conversations that a human left idle, every minute. */
+export function startConversationScheduler(engine: SupportEngine, intervalMs = 60_000): () => void {
+  const tick = () => {
+    try {
+      const closed = engine.closeIdleConversations();
+      if (closed.length > 0) {
+        console.log(`[conversations] Closed ${closed.length} idle conversation(s).`);
+      }
+    } catch (error) {
+      console.error('[conversations] idle sweep failed', error);
+    }
+  };
+  tick();
+  const timer = setInterval(tick, intervalMs);
+  timer.unref();
+  return () => clearInterval(timer);
 }
 
 /** Checks every minute for quotes that need an admin reminder; also catches up once on startup. */

@@ -158,6 +158,9 @@ Tests cover tool execution, request creation, transcript continuity, and OpenAI-
 - `GET /api/sessions/:id/messages` — chronological conversation transcript
 - `GET /api/traces` — model latency, token use, steps, and tool calls
 - `GET /api/intakes` — company, size, tools, and service collected per session
+- `GET /api/conversations`, `GET /api/conversations/needing-human` — live conversations
+- `GET /api/conversations/:id/messages` — a conversation transcript
+- `POST /api/conversations/:id/pause|takeover|handback|reply` — live conversation control
 - `GET|POST /api/services/:id/price-table` — upload and publish a service price table (xlsx or csv)
 - `GET /api/quotes`, `GET /api/quotes/:id`, `POST /api/quotes/build` — quote drafts and rebuilds
 - `GET|PUT /api/settings`, `PUT /api/settings/quote-margin` — live markup, 30–35%
@@ -191,6 +194,41 @@ SQLite runs in WAL mode with foreign keys enabled. The repository layer isolates
 
 `src/db/migrations/` contains ordered SQL migrations. Applied filenames are recorded in `schema_migrations`, allowing existing databases to upgrade without being recreated. Do not edit a migration that has already been applied; add the next numbered file instead.
 
+## Live conversations
+
+The dashboard has a WhatsApp-style inbox. Every channel conversation is tracked in the `conversations` table with an owner:
+
+- `ai` — the agent answers.
+- `paused` — the AI is silent; messages are held for the team.
+- `human` — an admin owns the chat and replies from the panel.
+
+While a conversation is not owned by the AI, inbound messages are stored, the unread count rises, and admins get a notification. The agent returns an empty reply so nothing is sent to the customer. Admins can pause the AI, take over, reply manually, and hand the conversation back. A conversation left without a human reply for 60 minutes (`CONVERSATION_IDLE_MINUTES`) closes automatically and returns to the AI.
+
+Endpoints:
+
+- `GET /api/conversations` — all conversations with the last message and unread count
+- `GET /api/conversations/needing-human` — conversations waiting for a human
+- `GET /api/conversations/:id/messages` — the transcript
+- `POST /api/conversations/:id/pause` — silence the AI
+- `POST /api/conversations/:id/takeover` — take the chat
+- `POST /api/conversations/:id/handback` — give it back to the AI
+- `POST /api/conversations/:id/reply` — send a message as a human agent
+
+## Telegram and WhatsApp delivery
+
+With `TELEGRAM_BOT_TOKEN` set, the Telegram adapter long-polls the Bot API, forwards messages to the engine, and delivers replies through `sendMessage`. `TELEGRAM_ADMIN_CHAT_IDS` (comma-separated) receives operational alerts: quotes waiting for approval and customers who ask for a human. `TELEGRAM_POLLING=false` switches to webhook ingress only.
+
+The WhatsApp adapter sends through the Meta WhatsApp Business Cloud API when `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID` are set. Without credentials both adapters stay in stub mode, so local development and tests need no accounts.
+
+## Deployment
+
+```bash
+docker compose up -d --build            # engine on port 3001, data in a named volume
+docker compose --profile tunnel up -d   # adds cloudflared when CLOUDFLARE_TUNNEL_TOKEN is set
+```
+
+The image builds the dashboard, installs the backend, and exposes a `/api/health` health check. Set `COOKIE_SECURE=true` when serving over HTTPS, which the compose file does by default.
+
 ## Roadmap
 
 - **Done — foundations:** admin accounts, session cookies, webhook secret, dashboard sign-in.
@@ -198,7 +236,7 @@ SQLite runs in WAL mode with foreign keys enabled. The repository layer isolates
 - **Done — intake:** company, size, tools, and service collection; language detection; price-free front agent.
 - **Done — pricing:** pricing agent, editable 30–35% markup, draft quotes in INR paise.
 - **Done — approval:** six-hour window, repeating admin alerts, quantity and margin edits, itemized delivery or price-free handoff.
-- **Next — live conversations:** WhatsApp-style admin panel, one-hour idle timeout, pause AI, take over, and hand back.
-- **Then — Telegram:** real bot delivery and admin alerts.
-- **Then — deployment:** self-hosted Docker and cloudflared.
-- **Then — verification:** full end-to-end check before production.
+- **Done — live conversations:** WhatsApp-style admin panel, one-hour idle timeout, pause AI, take over, and hand back.
+- **Done — Telegram:** real bot delivery and admin alerts.
+- **Done — deployment:** self-hosted Docker and cloudflared.
+- **Next — verification:** full end-to-end check before production.

@@ -33,7 +33,7 @@ The root test script explicitly enumerates `src/config`, `src/engine`, and `src/
 - Business capabilities belong in tools registered by `src/tools/index.ts`; do not bypass the agent with intent regexes or repository calls in channel adapters.
 - The default `LLM_PROVIDER=mock` is deterministic and needs no credentials. `openai` is an accepted alias for `openai-compatible`; live mode requires `OPENAI_API_KEY`.
 - Unit tests and `npm run eval` use in-memory SQLite and the mock provider. They need no API key, network LLM, or running server. Eval cases live in `eval/golden-conversations.json`.
-- Telegram and WhatsApp adapters currently normalize payloads but external connection/delivery is stubbed. Setting `TELEGRAM_BOT_TOKEN` or `WHATSAPP_ACCESS_TOKEN` does not activate a real bot integration.
+- Telegram delivers through the Bot API when `TELEGRAM_BOT_TOKEN` is set (long polling via `getUpdates`, replies via `sendMessage`, operator alerts to `TELEGRAM_ADMIN_CHAT_IDS`); WhatsApp delivers through the Cloud API when `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID` are set. Without those credentials both adapters stay in stub mode. Bot tokens are never logged, returned in API responses, or stored in the database.
 
 ## TypeScript and SQLite gotchas
 
