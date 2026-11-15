@@ -9,5 +9,6 @@ data/.fuse_hidden*
 data/.*.db
 .env
 *.log
+*.exe
 .DS_Store
 .playwright-mcp/

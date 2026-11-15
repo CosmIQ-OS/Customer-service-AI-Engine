@@ -49,7 +49,10 @@ export function bootstrap() {
   ensureQuoteMarginSetting(db, config.QUOTE_MARGIN_PERCENT);
 
   if (!auth.hasAdmins()) {
-    console.warn('[auth] No admin accounts exist. Create one with: npm run admin:create -- <username>');
+    const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || 'AdminSecret2026!';
+    auth.createAdmin('admin', initialPassword, 'CosmIQ Admin')
+      .then(() => console.log('[auth] Created default admin account (username: admin)'))
+      .catch((err) => console.error('[auth] Failed to create default admin account:', err));
   }
 
   const app = createApp(engine, {
@@ -58,6 +61,7 @@ export function bootstrap() {
     cookieSecure: config.COOKIE_SECURE,
     dashboardOrigin: config.DASHBOARD_ORIGIN,
     webhookSecret: config.CHANNEL_WEBHOOK_SECRET,
+    whatsappVerifyToken: config.WHATSAPP_VERIFY_TOKEN,
   });
   app.listen(config.PORT, () => {
     console.log(`[support-engine] API + dashboard server listening on http://localhost:${config.PORT}`);
@@ -136,11 +140,41 @@ const COSMIQ_SERVICES = [
   },
 ] as const;
 
+const COSMIQ_FAQS = [
+  {
+    question: 'What does CosmIQ do?',
+    answer: 'CosmIQ builds custom AI agents, automated customer support systems on WhatsApp, and internal business workflow automations for modern enterprises.',
+    tags: ['about', 'services', 'ai'],
+  },
+  {
+    question: 'How long does it take to deploy an AI agent?',
+    answer: 'Most custom WhatsApp agents and workflow automations are deployed and live within 1 to 2 weeks.',
+    tags: ['timeline', 'deployment'],
+  },
+  {
+    question: 'How do you price your automation services?',
+    answer: 'Our projects are tailored based on your business workflows and scale. Once we understand your requirements, our technical team prepares a detailed itemized proposal.',
+    tags: ['pricing', 'quote'],
+  },
+] as const;
+
 function seedCosmiqServices(engine: SupportEngine) {
   const existing = new Set(engine.listServices().map((service) => service.name));
   for (const service of COSMIQ_SERVICES) {
     if (existing.has(service.name)) continue;
     engine.createService({ ...service, status: 'available', availability_note: '' });
+  }
+}
+
+function seedCosmiqFaqs(engine: SupportEngine) {
+  const existing = new Set(engine.listFaqs().map((faq) => faq.question));
+  for (const faq of COSMIQ_FAQS) {
+    if (existing.has(faq.question)) continue;
+    engine.createFaq({
+      question: faq.question,
+      answer: faq.answer,
+      tags: [...faq.tags],
+    });
   }
 }
 
@@ -151,6 +185,7 @@ function seedIfEmpty(engine: SupportEngine) {
     engine.createService({ name: 'API Integration Support', description: 'Developer onboarding and integration troubleshooting.', category: 'technical', status: 'maintenance', availability_note: 'Back online after scheduled maintenance' });
   }
   seedCosmiqServices(engine);
+  seedCosmiqFaqs(engine);
   if (engine.listFaqs().length === 0) {
     engine.createFaq({ question: 'What are your support hours?', answer: 'Live chat support is available Monday to Friday, 09:00-18:00 local business time.', tags: ['hours', 'support'] });
     engine.createFaq({ question: 'How can I check service availability?', answer: 'Ask "what services are available?" in chat, or view the Services panel in the dashboard.', tags: ['services', 'availability'] });

@@ -1,3 +1,14 @@
+---
+title: Cosmiq Support Engine
+emoji: 🤖
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 3001
+pinned: false
+license: apache-2.0
+---
+
 # Business Support AI Engine
 
 A modular AI customer-service engine for chat channels such as **WhatsApp** and **Telegram**. It combines an OpenAI-compatible LLM, a bounded agent loop, support tools, SQLite persistence, conversation transcripts, execution traces, and a minimal React dashboard.

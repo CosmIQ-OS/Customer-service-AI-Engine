@@ -136,8 +136,8 @@ function intakeReply(observation: string, userText: string): string {
   const complete = missingRaw === '' || /^none$/i.test(missingRaw);
   if (complete) {
     return hindi
-      ? 'धन्यवाद — मेरे पास कंपनी का नाम, आकार, मौजूदा टूल्स और आपकी ज़रूरत की सेवा है। हमारी प्राइसिंग टीम कोटेशन तैयार करेगी और मंज़ूरी के बाद वह आपके साथ साझा किया जाएगा।'
-      : 'Thanks — I have your company name, size, current tools, and the service you want. Our pricing team will prepare a quote and it will be reviewed before it is shared with you.';
+      ? 'धन्यवाद — मेरे पास कंपनी का नाम, आकार, मौजूदा टूल्स और आपकी ज़रूरत की सेवा है। हमारी प्राइसिंग टीम कोटेशन तैयार करेगी और हमारी कस्टमर सर्विस टीम जल्द ही आपसे संपर्क करेगी।'
+      : 'Thanks — I have recorded your company name, size, current tools, and required service. Our pricing team is preparing your custom proposal, and our customer service will contact you shortly!';
   }
   if (hindi) {
     return 'धन्यवाद, यह जानकारी मदद करती है। कोटेशन तैयार करने के लिए कृपया बाकी जानकारी भी साझा करें।';

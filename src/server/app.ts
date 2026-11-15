@@ -17,6 +17,7 @@ export interface AppOptions {
   cookieSecure: boolean;
   dashboardOrigin?: string;
   webhookSecret?: string;
+  whatsappVerifyToken?: string;
 }
 
 const serviceSchema = z.object({
@@ -56,6 +57,40 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
     // An empty reply means a human owns the conversation, so nothing is sent.
     if (result.reply.trim()) await adapter.sendMessage(msg.externalUserId, result);
     res.json(result);
+  });
+
+  // Meta WhatsApp Cloud API Webhook handshake (GET)
+  app.get('/api/channels/whatsapp/webhook', (req, res) => {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+
+    if (mode === 'subscribe' && options.whatsappVerifyToken && token === options.whatsappVerifyToken) {
+      console.log('[whatsapp-webhook] Successfully verified by Meta webhook handshake!');
+      res.status(200).send(challenge);
+      return;
+    }
+    console.warn('[whatsapp-webhook] Verification failed. Mode or token mismatch.');
+    res.status(403).send('Forbidden');
+  });
+
+  // Meta WhatsApp Cloud API Webhook receiver (POST)
+  app.post('/api/channels/whatsapp/webhook', async (req, res) => {
+    res.status(200).send('EVENT_RECEIVED');
+
+    const adapter = engine.adapters.get('whatsapp');
+    if (!adapter) return;
+    const msg = adapter.normalize(req.body);
+    if (!msg) return;
+
+    try {
+      console.log(`[whatsapp-webhook] Inbound message from ${msg.externalUserId}: "${msg.text}"`);
+      const result = await engine.handleMessage(msg);
+      // An empty reply means a human owns the conversation, so nothing is sent.
+      if (result.reply.trim()) await adapter.sendMessage(msg.externalUserId, result);
+    } catch (err) {
+      console.error('[whatsapp-webhook] Error handling inbound message:', err);
+    }
   });
 
   app.use('/api', requireAdmin(options.auth));
