@@ -35,7 +35,7 @@ function fmtTime(v?: string | null): string {
   return isNaN(d.getTime()) ? v : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function getInitials(name?: string, fallback = 'U'): string {
+function getInitials(name?: string, fallback = 'US'): string {
   if (!name) return fallback.slice(0, 2).toUpperCase();
   const parts = name.trim().split(/\s+/);
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
@@ -43,19 +43,19 @@ function getInitials(name?: string, fallback = 'U'): string {
 }
 
 function ChannelBadge({ channel }: { channel: string }) {
-  const isWa = channel.toLowerCase() === 'whatsapp';
+  const normalized = channel.toLowerCase();
   return (
-    <span className={`pill ${isWa ? 'whatsapp' : 'telegram'}`}>
-      {isWa ? '🟢 WhatsApp' : '🔵 Telegram'}
+    <span className={`pill ${normalized === 'whatsapp' ? 'whatsapp' : 'telegram'}`}>
+      {normalized === 'whatsapp' ? 'WHATSAPP' : normalized === 'telegram' ? 'TELEGRAM' : normalized.toUpperCase()}
     </span>
   );
 }
 
 function ModeBadge({ mode, status }: { mode: Mode; status: string }) {
-  if (status === 'closed') return <span className="pill">Closed</span>;
-  if (mode === 'human') return <span className="pill human">👤 Human Operator</span>;
-  if (mode === 'paused') return <span className="pill orange">⏸️ AI Paused</span>;
-  return <span className="pill emerald">🤖 AI Active</span>;
+  if (status === 'closed') return <span className="pill">CLOSED</span>;
+  if (mode === 'human') return <span className="pill black">HUMAN OPERATOR</span>;
+  if (mode === 'paused') return <span className="pill acc">PAUSED</span>;
+  return <span className="pill ok">AI ACTIVE</span>;
 }
 
 export function LiveConversations() {
@@ -145,7 +145,11 @@ export function LiveConversations() {
         body: JSON.stringify({ text: draft.trim() }),
       });
       setDraft('');
-      setNotice(result.delivered ? 'Reply sent successfully to customer.' : 'Reply saved. (Live channel delivery is processing)');
+      setNotice(
+        result.delivered
+          ? 'Reply delivered to the customer channel.'
+          : 'Reply stored; channel delivery pending.',
+      );
       await loadThread(selected);
       await loadList();
     } catch (err) {
@@ -180,69 +184,74 @@ export function LiveConversations() {
   });
 
   return (
-    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <section className="inbox-card">
+      <div className="inbox-header">
         <div>
-          <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>
-            Live Conversations Inbox
+          <div className="kicker">TERMINAL // LIVE CONVERSATIONS</div>
+          <h2 style={{ margin: '4px 0 0', fontSize: '1.05rem', fontWeight: 600 }}>
+            Enquiry &amp; Support Inbox
           </h2>
-          <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: 'var(--fg-muted)' }}>
-            Real-time customer chats from WhatsApp and Telegram. AI assists and hands over seamlessly.
-          </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {waitingCount > 0 && <span className="pill orange">⚡ {waitingCount} Needs Human</span>}
-          <span className="pill">{conversations.length} Active Chats</span>
+        <div className="toolbar">
+          {waitingCount > 0 && <span className="pill acc">{waitingCount} WAITING HUMAN</span>}
+          <span className="pill">{conversations.length} ACTIVE CHATS</span>
         </div>
       </div>
 
-      {error && <div className="banner error" style={{ margin: 16 }}>{error}</div>}
-      {notice && <div className="banner success" style={{ margin: 16 }}>{notice}</div>}
+      {error && (
+        <div className="banner error" style={{ margin: '12px 16px 0' }}>
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="banner success" style={{ margin: '12px 16px 0' }}>
+          {notice}
+        </div>
+      )}
 
       <div className="inbox-layout">
-        {/* Sidebar list */}
+        {/* Conversation List Sidebar */}
         <div className="inbox-sidebar">
           <div className="inbox-sidebar-head">
             <input
               className="inbox-search"
-              placeholder="🔍 Search name, phone..."
+              placeholder="Filter name, phone ID, or text…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-            <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+            <div className="inbox-filter-strip">
               <button
-                className={`tab-btn ${filterMode === 'all' ? 'active' : ''}`}
-                style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                type="button"
+                className={`inbox-filter-btn ${filterMode === 'all' ? 'active' : ''}`}
                 onClick={() => setFilterMode('all')}
               >
-                All ({conversations.length})
+                ALL ({conversations.length})
               </button>
               <button
-                className={`tab-btn ${filterMode === 'human' ? 'active' : ''}`}
-                style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                type="button"
+                className={`inbox-filter-btn ${filterMode === 'human' ? 'active' : ''}`}
                 onClick={() => setFilterMode('human')}
               >
-                Needs Action ({waitingCount})
+                ACTION ({waitingCount})
               </button>
               <button
-                className={`tab-btn ${filterMode === 'ai' ? 'active' : ''}`}
-                style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                type="button"
+                className={`inbox-filter-btn ${filterMode === 'ai' ? 'active' : ''}`}
                 onClick={() => setFilterMode('ai')}
               >
-                AI Auto
+                AI AUTO
               </button>
             </div>
           </div>
 
           <div className="inbox-list">
             {filtered.length === 0 ? (
-              <div style={{ padding: 24, textAlign: 'center', color: 'var(--fg-muted)', fontSize: '0.85rem' }}>
+              <div className="muted small" style={{ padding: 24, textAlign: 'center' }}>
                 No matching conversations found.
               </div>
             ) : (
               filtered.map((c) => {
                 const isSelected = c.sessionId === selected;
-                const isWa = c.channel.toLowerCase() === 'whatsapp';
                 return (
                   <button
                     key={c.sessionId}
@@ -253,7 +262,7 @@ export function LiveConversations() {
                       void loadThread(c.sessionId).catch(() => undefined);
                     }}
                   >
-                    <div className={`inbox-item-avatar ${isWa ? 'whatsapp' : ''}`}>
+                    <div className="inbox-item-avatar">
                       {getInitials(c.displayName || c.externalUserId)}
                     </div>
                     <div className="inbox-item-content">
@@ -261,9 +270,7 @@ export function LiveConversations() {
                         <span className="inbox-item-name">{c.displayName || c.externalUserId}</span>
                         <span className="inbox-item-time">{fmtTime(c.lastMessageAt ?? c.updatedAt)}</span>
                       </div>
-                      <div className="inbox-item-msg">
-                        {c.lastMessage || 'No messages yet'}
-                      </div>
+                      <div className="inbox-item-msg">{c.lastMessage || 'No messages yet'}</div>
                       <div className="inbox-item-meta">
                         <ChannelBadge channel={c.channel} />
                         <ModeBadge mode={c.mode} status={c.status} />
@@ -276,11 +283,11 @@ export function LiveConversations() {
           </div>
         </div>
 
-        {/* Chat Thread Pane */}
+        {/* Thread Detail Pane */}
         <div className="chat-pane">
           {!active ? (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--fg-muted)' }}>
-              Select a conversation from the left to inspect and reply.
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }} className="muted small">
+              Select a thread on the left to inspect transcript and handover status.
             </div>
           ) : (
             <>
@@ -292,7 +299,9 @@ export function LiveConversations() {
                   <div className="chat-user-title">
                     <h3>{active.displayName || active.externalUserId}</h3>
                     <p>
-                      {active.externalUserId} · <ChannelBadge channel={active.channel} /> · <ModeBadge mode={active.mode} status={active.status} />
+                      <span className="mono">{active.externalUserId}</span>
+                      <ChannelBadge channel={active.channel} />
+                      <ModeBadge mode={active.mode} status={active.status} />
                     </p>
                   </div>
                 </div>
@@ -304,17 +313,17 @@ export function LiveConversations() {
                         className="btn secondary"
                         type="button"
                         disabled={busy}
-                        onClick={() => act('/pause', 'AI paused for this customer.')}
+                        onClick={() => act('/pause', 'AI paused for this conversation.')}
                       >
-                        ⏸️ Pause AI
+                        PAUSE AI
                       </button>
                       <button
-                        className="btn"
+                        className="btn primary"
                         type="button"
                         disabled={busy}
-                        onClick={() => act('/takeover', 'You took over! The AI is now silent.')}
+                        onClick={() => act('/takeover', 'Operator takeover active. AI is now silent.')}
                       >
-                        ✋ Take Over
+                        TAKE OVER
                       </button>
                     </>
                   ) : (
@@ -324,7 +333,7 @@ export function LiveConversations() {
                       disabled={busy}
                       onClick={() => act('/handback', 'Conversation handed back to CosmIQ AI.')}
                     >
-                      🤖 Hand Back to AI
+                      HAND BACK TO AI
                     </button>
                   )}
                 </div>
@@ -332,8 +341,8 @@ export function LiveConversations() {
 
               <div className="chat-thread-stream">
                 {messages.length === 0 ? (
-                  <div style={{ textAlign: 'center', color: 'var(--fg-muted)', marginTop: 40 }}>
-                    No messages recorded yet in this session.
+                  <div className="muted small" style={{ textAlign: 'center', marginTop: 40 }}>
+                    No messages recorded in this session yet.
                   </div>
                 ) : (
                   messages.map((m) => {
@@ -344,9 +353,9 @@ export function LiveConversations() {
                         <div className="msg-bubble">{m.content}</div>
                         <div className="msg-meta">
                           <span className="msg-role-tag">
-                            {isUser ? 'Customer' : isAi ? '🤖 CosmIQ AI' : '👤 Operator'}
+                            {isUser ? 'CUSTOMER' : isAi ? 'COSMIQ AI' : 'OPERATOR'}
                           </span>
-                          <span>·</span>
+                          <span>//</span>
                           <span>{fmtTime(m.created_at)}</span>
                         </div>
                       </div>
@@ -363,30 +372,28 @@ export function LiveConversations() {
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="Type an instant reply (Enter to send, Shift+Enter for new line)..."
+                    placeholder="Type an operator reply (Enter to send, Shift+Enter for new line)…"
                     rows={2}
                   />
                   <button
-                    className="btn"
+                    className="btn primary"
                     type="submit"
                     disabled={busy || !draft.trim()}
-                    style={{ height: 48, minWidth: 90 }}
+                    style={{ height: 48, minWidth: 100 }}
                   >
-                    {busy ? 'Sending…' : 'Send ➤'}
+                    {busy ? 'SENDING…' : 'SEND'}
                   </button>
                 </form>
                 <div className="chat-status-tip">
-                  {active.mode === 'ai' ? (
-                    <span>💡 <strong>AI Active Mode:</strong> Gemini will automatically reply to customer messages. Take over to reply directly.</span>
-                  ) : (
-                    <span>⚠️ <strong>Operator Mode:</strong> AI is silent. Messages you send here will be delivered directly to the customer's WhatsApp.</span>
-                  )}
+                  {active.mode === 'ai'
+                    ? 'STATUS // AI ACTIVE: Automated responses enabled. Click TAKE OVER to reply manually.'
+                    : 'STATUS // OPERATOR CONTROL: AI paused. Replies dispatch directly to channel.'}
                 </div>
               </div>
             </>
           )}
         </div>
       </div>
-    </div>
+    </section>
   );
 }

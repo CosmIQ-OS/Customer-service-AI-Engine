@@ -229,10 +229,11 @@ export function Approvals({ refreshKey = 0, onChanged }: { refreshKey?: number; 
   return (
     <section className="card">
       <h2 className="panel-title">
-        Approval Queue <span>admins decide before any customer sees a price</span>
+        <strong>Approval Queue</strong>
+        <span>admins decide before any customer sees a price</span>
       </h2>
 
-      <div className="toolbar" style={{ marginBottom: 10 }}>
+      <div className="toolbar" style={{ marginBottom: 14 }}>
         <span className="pill orange">{pending.length} awaiting approval</span>
         <span className="pill">{unread} unread alert{unread === 1 ? '' : 's'}</span>
         <span className="muted small">
@@ -240,18 +241,34 @@ export function Approvals({ refreshKey = 0, onChanged }: { refreshKey?: number; 
         </span>
       </div>
 
-      {error && <div className="card error" style={{ marginBottom: 12 }}>{error}</div>}
-      {message && <div className="success" style={{ marginBottom: 12 }}>{message}</div>}
+      {error && <div className="banner error" style={{ marginBottom: 12 }}>{error}</div>}
+      {message && <div className="banner success" style={{ marginBottom: 12 }}>{message}</div>}
 
       {pending.length === 0 ? (
-        <div className="muted small">No quotes are waiting for approval.</div>
+        <div
+          className="muted small"
+          style={{
+            padding: '20px 14px',
+            textAlign: 'center',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-default)',
+          }}
+        >
+          No quotes are waiting for approval.
+        </div>
       ) : (
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Quote</th><th>Customer</th><th>Service</th><th>Total</th><th>Margin</th>
-                <th>Waiting since</th><th>Reminder</th><th></th>
+                <th>Quote</th>
+                <th>Customer</th>
+                <th>Service</th>
+                <th className="num">Total</th>
+                <th className="num">Margin</th>
+                <th>Waiting since</th>
+                <th>Reminder</th>
+                <th className="act"></th>
               </tr>
             </thead>
             <tbody>
@@ -263,15 +280,21 @@ export function Approvals({ refreshKey = 0, onChanged }: { refreshKey?: number; 
                     <div className="muted small">{quote.channel}</div>
                   </td>
                   <td className="small">{quote.service_name}</td>
-                  <td>{formatInr(quote.total_paise)}</td>
-                  <td>{quote.margin_percent}%</td>
-                  <td className="muted small">{fmtTime(quote.created_at)}</td>
+                  <td className="num">{formatInr(quote.total_paise)}</td>
+                  <td className="num">{quote.margin_percent}%</td>
+                  <td className="mono muted">{fmtTime(quote.created_at)}</td>
                   <td className="muted small">
                     {quote.alert_count > 0 ? `${quote.alert_count} reminder(s) sent` : 'first alert sent'}
                     {quote.next_alert_at ? <div>next {fmtTime(quote.next_alert_at)}</div> : null}
                   </td>
-                  <td>
-                    <button className="btn secondary" type="button" onClick={() => review(quote.id)} disabled={busy}>
+                  <td className="act">
+                    <button
+                      className="btn secondary"
+                      style={{ minHeight: 30, padding: '4px 10px', fontSize: '11px' }}
+                      type="button"
+                      onClick={() => review(quote.id)}
+                      disabled={busy}
+                    >
                       Review
                     </button>
                   </td>
@@ -283,14 +306,33 @@ export function Approvals({ refreshKey = 0, onChanged }: { refreshKey?: number; 
       )}
 
       {detail && (
-        <div style={{ marginTop: 18 }}>
-          <h3 className="small">
-            {detail.quote.quote_number} · {detail.quote.external_user_id} · <span className="pill">{detail.quote.status}</span>
-          </h3>
+        <div
+          style={{
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-default)',
+            padding: 16,
+            marginTop: 16,
+          }}
+        >
+          <div className="panel-title">
+            <strong className="mono" style={{ fontSize: '0.92rem' }}>
+              {detail.quote.quote_number} · {detail.quote.external_user_id}
+            </strong>
+            <span className="pill">{detail.quote.status}</span>
+          </div>
+
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Code</th><th>Description</th><th>Unit</th><th>Qty</th><th>Admin unit</th><th>Quoted unit</th><th>Line total</th></tr>
+                <tr>
+                  <th>Code</th>
+                  <th>Description</th>
+                  <th>Unit</th>
+                  <th className="num">Qty</th>
+                  <th className="num">Admin unit</th>
+                  <th className="num">Quoted unit</th>
+                  <th className="num">Line total</th>
+                </tr>
               </thead>
               <tbody>
                 {detail.items.map((item) => (
@@ -298,82 +340,107 @@ export function Approvals({ refreshKey = 0, onChanged }: { refreshKey?: number; 
                     <td className="mono">{item.item_code}</td>
                     <td>{item.description}</td>
                     <td>{item.unit}</td>
-                    <td>
+                    <td className="num">
                       <input
+                        className="qty-input"
                         type="number"
                         min="0.001"
                         step="0.001"
-                        style={{ width: 90 }}
                         value={quantities[item.id] ?? ''}
                         onChange={(e) => setQuantities({ ...quantities, [item.id]: e.target.value })}
                       />
                     </td>
-                    <td className="muted">{formatInr(item.admin_unit_price_paise)}</td>
-                    <td>{formatInr(item.quoted_unit_price_paise)}</td>
-                    <td>{formatInr(item.line_total_paise)}</td>
+                    <td className="num muted">{formatInr(item.admin_unit_price_paise)}</td>
+                    <td className="num">{formatInr(item.quoted_unit_price_paise)}</td>
+                    <td className="num">{formatInr(item.line_total_paise)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          <div className="form" style={{ marginTop: 12, maxWidth: 360 }}>
-            <label>Margin (%)
+          <div className="form" style={{ marginTop: 14, maxWidth: 420 }}>
+            <label>
+              Margin (%)
               <input
                 type="number"
                 min="30"
                 max="35"
                 step="0.25"
+                style={{ width: 140 }}
                 value={margin}
                 onChange={(e) => setMargin(e.target.value)}
               />
             </label>
-            <label>Internal rejection note (optional)
+            <label>
+              Internal rejection note (optional)
               <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why is this quote rejected?" />
             </label>
           </div>
 
-          <p className="small" style={{ marginTop: 10 }}>
-            Admin subtotal {formatInr(detail.quote.subtotal_paise)}
-            {' · '}current total {formatInr(detail.quote.total_paise)}
-            {' · '}preview total <strong>{formatInr(previewTotal())}</strong>
-          </p>
+          <div className="quote-total-band">
+            <span>ADMIN SUBTOTAL: {formatInr(detail.quote.subtotal_paise)}</span>
+            <span>CURRENT TOTAL: {formatInr(detail.quote.total_paise)}</span>
+            <span>PREVIEW TOTAL: {formatInr(previewTotal())}</span>
+          </div>
 
-          <div className="toolbar" style={{ marginTop: 10 }}>
-            <button className="btn" type="button" onClick={approve} disabled={busy}>
+          <div className="toolbar" style={{ marginTop: 14 }}>
+            <button className="btn primary" type="button" onClick={approve} disabled={busy}>
               {busy ? 'Working…' : 'Approve & send quote'}
             </button>
-            <button className="btn secondary" type="button" onClick={saveEdits} disabled={busy}>Save changes</button>
-            <button className="btn secondary" type="button" onClick={reject} disabled={busy}>Reject</button>
-            <button className="btn secondary" type="button" onClick={closeDetail} disabled={busy}>Close</button>
+            <button className="btn secondary" type="button" onClick={saveEdits} disabled={busy}>
+              Save changes
+            </button>
+            <button className="btn danger" type="button" onClick={reject} disabled={busy}>
+              Reject
+            </button>
+            <button className="btn secondary" type="button" onClick={closeDetail} disabled={busy}>
+              Close
+            </button>
           </div>
-          <p className="muted small">
+          <p className="muted small" style={{ margin: '10px 0 0' }}>
             Quantities and margin are editable. Item codes, descriptions, units, and admin prices stay locked to the price table.
           </p>
         </div>
       )}
 
-      <div style={{ marginTop: 18 }}>
-        <div className="panel-title" style={{ marginBottom: 8 }}>
-          <h3 className="small" style={{ margin: 0 }}>Admin Alerts</h3>
-          <button className="btn secondary" type="button" onClick={markAllRead} disabled={unread === 0 || busy}>
+      <div style={{ marginTop: 20 }}>
+        <div className="panel-title" style={{ marginBottom: 12 }}>
+          <strong className="kicker" style={{ color: 'var(--text-primary)' }}>Admin Alerts</strong>
+          <button
+            className="btn secondary"
+            style={{ minHeight: 30, padding: '4px 10px', fontSize: '11px' }}
+            type="button"
+            onClick={markAllRead}
+            disabled={unread === 0 || busy}
+          >
             Mark all read
           </button>
         </div>
         {notifications.length === 0 ? (
-          <div className="muted small">No approval alerts yet.</div>
+          <div
+            className="muted small"
+            style={{
+              padding: '16px 14px',
+              textAlign: 'center',
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--border-default)',
+            }}
+          >
+            No approval alerts yet.
+          </div>
         ) : (
-          <div className="stack">
+          <div className="stack" style={{ gap: 8 }}>
             {notifications.map((notification) => (
-              <div key={notification.id} className="small">
-                <div>
+              <div key={notification.id} className="list-row" style={{ flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', width: '100%' }}>
                   <Pill read={Boolean(notification.read_at)} kind={notification.kind} />
-                  {' '}
-                  <strong>{notification.title}</strong>
-                  {' '}
-                  <span className="muted">{fmtTime(notification.created_at)}</span>
+                  <strong className="small">{notification.title}</strong>
+                  <span className="mono muted" style={{ fontSize: '11px', marginLeft: 'auto' }}>
+                    {fmtTime(notification.created_at)}
+                  </span>
                 </div>
-                <div className="muted">{notification.body}</div>
+                <div className="muted small">{notification.body}</div>
               </div>
             ))}
           </div>

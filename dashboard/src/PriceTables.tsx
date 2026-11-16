@@ -115,38 +115,70 @@ export function PriceTables({ services }: { services: AnyRow[] }) {
 
   return (
     <section className="card">
-      <h2 className="panel-title">Price Tables <span>INR, uploaded by admins</span></h2>
+      <h2 className="panel-title">
+        <strong>Price Tables</strong>
+        <span>INR, uploaded by admins</span>
+      </h2>
       {services.length === 0 ? (
-        <div className="muted small">No services yet.</div>
+        <div
+          className="muted small"
+          style={{
+            padding: '20px 14px',
+            textAlign: 'center',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-default)',
+          }}
+        >
+          No services yet.
+        </div>
       ) : (
         <>
-          <label>Service
-            <select value={serviceId ?? ''} onChange={(e) => setServiceId(Number(e.target.value))}>
-              {orderedServices.map((service) => (
-                <option key={service.id} value={service.id}>{service.name}</option>
-              ))}
-            </select>
-          </label>
+          <div className="form" style={{ marginBottom: 14 }}>
+            <label>
+              Service
+              <select value={serviceId ?? ''} onChange={(e) => setServiceId(Number(e.target.value))}>
+                {orderedServices.map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {service.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
           {table ? (
-            <p className="small">
-              <strong>Version {table.version}</strong> · {table.item_count} items · {table.source_filename} · uploaded {fmtTime(table.uploaded_at)}
-            </p>
+            <div className="list-row" style={{ marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span className="mono small">
+                <strong>VERSION {table.version}</strong> · {table.item_count} ITEMS · {table.source_filename}
+              </span>
+              <span className="mono muted" style={{ fontSize: '11px' }}>
+                UPLOADED // {fmtTime(table.uploaded_at)}
+              </span>
+            </div>
           ) : (
-            <p className="muted small">No price table for {selected?.name} yet.</p>
+            <p className="muted small" style={{ margin: '0 0 14px' }}>
+              No price table for {selected?.name} yet.
+            </p>
           )}
 
           {items.length > 0 && (
-            <div className="table-wrap">
+            <div className="table-wrap" style={{ marginBottom: 16 }}>
               <table>
-                <thead><tr><th>Code</th><th>Description</th><th>Unit</th><th>Unit price</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Description</th>
+                    <th>Unit</th>
+                    <th className="num">Unit price</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {items.map((item) => (
                     <tr key={item.id}>
                       <td className="mono">{item.item_code}</td>
                       <td>{item.description}</td>
                       <td>{item.unit}</td>
-                      <td>{formatInr(item.unit_price_paise)}</td>
+                      <td className="num">{formatInr(item.unit_price_paise)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -155,7 +187,8 @@ export function PriceTables({ services }: { services: AnyRow[] }) {
           )}
 
           <form className="form" onSubmit={upload} style={{ marginTop: 14 }}>
-            <label>Upload a new version (.xlsx or .csv)
+            <label>
+              Upload a new version (.xlsx or .csv)
               <input
                 key={fileKey}
                 type="file"
@@ -164,7 +197,9 @@ export function PriceTables({ services }: { services: AnyRow[] }) {
               />
             </label>
             <div className="toolbar">
-              <button className="btn" type="submit" disabled={!file || busy}>{busy ? 'Uploading…' : 'Publish version'}</button>
+              <button className="btn primary" type="submit" disabled={!file || busy}>
+                {busy ? 'Uploading…' : 'Publish version'}
+              </button>
               <a
                 className="btn secondary"
                 href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE)}`}
@@ -173,29 +208,48 @@ export function PriceTables({ services }: { services: AnyRow[] }) {
                 CSV template
               </a>
             </div>
-            <span className="muted small">Columns: item_code, description, unit, unit_price. Publishing replaces the active table; earlier versions are kept.</span>
+            <span className="muted small">
+              Columns: item_code, description, unit, unit_price. Publishing replaces the active table; earlier versions are kept.
+            </span>
           </form>
 
-          {message && <div className={errors.length ? 'card error' : 'success'} style={{ marginTop: 12 }}>{message}</div>}
+          {message && (
+            <div className={errors.length ? 'banner error' : 'banner success'} style={{ marginTop: 14 }}>
+              {message}
+            </div>
+          )}
           {errors.length > 0 && (
-            <ul className="small">
+            <div className="stack" style={{ gap: 6, marginTop: 10 }}>
               {errors.map((error, index) => (
-                <li key={index}>{error.row > 0 ? `Row ${error.row}: ` : ''}{error.message}</li>
+                <div key={index} className="list-row small" style={{ color: 'var(--status-danger)' }}>
+                  <span>{error.row > 0 ? `Row ${error.row}: ` : ''}{error.message}</span>
+                </div>
               ))}
-            </ul>
+            </div>
           )}
 
           {history.length > 1 && (
-            <>
-              <h3 className="small" style={{ marginTop: 16 }}>Version history</h3>
-              <ul className="small">
+            <div style={{ marginTop: 20 }}>
+              <div className="panel-title" style={{ marginBottom: 10 }}>
+                <strong className="kicker" style={{ color: 'var(--text-primary)' }}>Version History</strong>
+                <span>{history.length} VERSIONS</span>
+              </div>
+              <div className="stack" style={{ gap: 8 }}>
                 {history.map((version) => (
-                  <li key={version.id}>
-                    v{version.version} · <span className="pill">{version.status}</span> · {version.item_count} items · {version.source_filename} · {fmtTime(version.uploaded_at)}
-                  </li>
+                  <div key={version.id} className="list-row small" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <strong className="mono">v{version.version}</strong>
+                      <span className={`pill ${version.status === 'active' ? 'ok' : ''}`}>{version.status}</span>
+                      <span>{version.item_count} items</span>
+                      <span className="muted">{version.source_filename}</span>
+                    </div>
+                    <span className="mono muted" style={{ fontSize: '11px' }}>
+                      {fmtTime(version.uploaded_at)}
+                    </span>
+                  </div>
                 ))}
-              </ul>
-            </>
+              </div>
+            </div>
           )}
         </>
       )}

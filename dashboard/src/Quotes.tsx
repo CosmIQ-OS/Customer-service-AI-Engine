@@ -129,27 +129,42 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
 
   return (
     <section className="card">
-      <h2 className="panel-title">Quotes <span>pricing agent drafts</span></h2>
+      <h2 className="panel-title">
+        <strong>Quotes</strong>
+        <span>pricing agent drafts</span>
+      </h2>
 
       {settings ? (
         <form className="form" onSubmit={saveMargin} noValidate>
-          <label>Markup on admin prices (%)
-            <input
-              type="number"
-              min={settings.minMarginPercent}
-              max={settings.maxMarginPercent}
-              step="0.25"
-              value={margin}
-              aria-invalid={marginError ? true : undefined}
-              aria-describedby={marginError ? 'quote-margin-error' : undefined}
-              onChange={(e) => onMarginChange(e.target.value)}
-            />
-          </label>
-          <div className="toolbar">
-            <button className="btn" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save markup'}</button>
-            <button className="btn secondary" type="button" onClick={() => load().catch(() => undefined)}>Refresh quotes</button>
+          <div className="inline-form-row">
+            <label style={{ width: 200 }}>
+              Markup on admin prices (%)
+              <input
+                type="number"
+                min={settings.minMarginPercent}
+                max={settings.maxMarginPercent}
+                step="0.25"
+                style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}
+                value={margin}
+                aria-invalid={marginError ? true : undefined}
+                aria-describedby={marginError ? 'quote-margin-error' : undefined}
+                onChange={(e) => onMarginChange(e.target.value)}
+              />
+            </label>
+            <div className="toolbar">
+              <button className="btn primary" type="submit" disabled={busy}>
+                {busy ? 'Saving…' : 'Save markup'}
+              </button>
+              <button className="btn secondary" type="button" onClick={() => load().catch(() => undefined)}>
+                Refresh quotes
+              </button>
+            </div>
           </div>
-          {marginError && <span id="quote-margin-error" className="error small" role="alert">{marginError}</span>}
+          {marginError && (
+            <span id="quote-margin-error" className="banner error" style={{ marginBottom: 0 }} role="alert">
+              {marginError}
+            </span>
+          )}
           <span className="muted small">
             Allowed range {settings.minMarginPercent}–{settings.maxMarginPercent}%. Applies to new quotes; existing quotes keep the margin they were built with.
           </span>
@@ -158,18 +173,35 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
         <div className="muted small">Loading pricing settings…</div>
       )}
 
-      {message && <div className="success" style={{ marginTop: 12 }}>{message}</div>}
-      {error && <div className="card error" style={{ marginTop: 12 }}>{error}</div>}
+      {message && <div className="banner success" style={{ marginTop: 14 }}>{message}</div>}
+      {error && <div className="banner error" style={{ marginTop: 14 }}>{error}</div>}
 
       <div style={{ marginTop: 16 }}>
         {quotes.length === 0 ? (
-          <div className="muted small">
+          <div
+            className="muted small"
+            style={{
+              padding: '20px 14px',
+              textAlign: 'center',
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--border-default)',
+            }}
+          >
             No quotes yet. A draft is created when an intake is complete and the service has an active price table.
           </div>
         ) : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Quote</th><th>Customer</th><th>Service</th><th>Total</th><th>Status</th><th></th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Quote</th>
+                  <th>Customer</th>
+                  <th>Service</th>
+                  <th className="num">Total</th>
+                  <th>Status</th>
+                  <th className="act"></th>
+                </tr>
+              </thead>
               <tbody>
                 {quotes.map((quote) => (
                   <tr key={quote.id}>
@@ -179,9 +211,18 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
                       <div className="muted small">{quote.channel}</div>
                     </td>
                     <td className="small">{quote.service_name}</td>
-                    <td>{formatInr(quote.total_paise)}</td>
+                    <td className="num">{formatInr(quote.total_paise)}</td>
                     <td><span className="pill">{quote.status}</span></td>
-                    <td><button className="btn secondary" type="button" onClick={() => view(quote.id)}>View</button></td>
+                    <td className="act">
+                      <button
+                        className="btn secondary"
+                        style={{ minHeight: 30, padding: '4px 10px', fontSize: '11px' }}
+                        type="button"
+                        onClick={() => view(quote.id)}
+                      >
+                        View
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -191,35 +232,64 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
       </div>
 
       {detail && (
-        <div style={{ marginTop: 18 }}>
-          <h3 className="small">
-            {detail.quote.quote_number} · {detail.quote.margin_percent}% markup · <span className="pill">{detail.quote.status}</span>
-          </h3>
+        <div
+          style={{
+            marginTop: 18,
+            padding: 16,
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-default)',
+          }}
+        >
+          <div className="panel-title">
+            <strong className="mono" style={{ fontSize: '0.92rem' }}>
+              {detail.quote.quote_number} · {detail.quote.margin_percent}% markup
+            </strong>
+            <span className="pill">{detail.quote.status}</span>
+          </div>
+
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Code</th><th>Description</th><th>Unit</th><th>Qty</th><th>Admin unit</th><th>Quoted unit</th><th>Line total</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Description</th>
+                  <th>Unit</th>
+                  <th className="num">Qty</th>
+                  <th className="num">Admin unit</th>
+                  <th className="num">Quoted unit</th>
+                  <th className="num">Line total</th>
+                </tr>
+              </thead>
               <tbody>
                 {detail.items.map((item) => (
                   <tr key={item.id}>
                     <td className="mono">{item.item_code}</td>
                     <td>{item.description}</td>
                     <td>{item.unit}</td>
-                    <td>{fmtQuantity(item.quantity)}</td>
-                    <td className="muted">{formatInr(item.admin_unit_price_paise)}</td>
-                    <td>{formatInr(item.quoted_unit_price_paise)}</td>
-                    <td>{formatInr(item.line_total_paise)}</td>
+                    <td className="num">{fmtQuantity(item.quantity)}</td>
+                    <td className="num muted">{formatInr(item.admin_unit_price_paise)}</td>
+                    <td className="num">{formatInr(item.quoted_unit_price_paise)}</td>
+                    <td className="num">{formatInr(item.line_total_paise)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <p className="small" style={{ marginTop: 10 }}>
-            Admin subtotal {formatInr(detail.quote.subtotal_paise)}
-            {' · '}margin {formatInr(detail.quote.margin_paise)}
-            {' · '}customer total <strong>{formatInr(detail.quote.total_paise)}</strong>
+
+          <div className="quote-total-band">
+            <span>ADMIN SUBTOTAL: {formatInr(detail.quote.subtotal_paise)}</span>
+            <span>MARGIN: {formatInr(detail.quote.margin_paise)}</span>
+            <span>CUSTOMER TOTAL: {formatInr(detail.quote.total_paise)}</span>
+          </div>
+
+          <p className="mono muted" style={{ fontSize: '11px', margin: '10px 0 0' }}>
+            CREATED // {fmtTime(detail.quote.created_at)}
           </p>
-          <p className="muted small">Created {fmtTime(detail.quote.created_at)}</p>
-          {detail.quote.notes && <p className="muted small">Internal note: {detail.quote.notes}</p>}
+          {detail.quote.notes && (
+            <p className="muted small" style={{ margin: '6px 0 0' }}>
+              Internal note: {detail.quote.notes}
+            </p>
+          )}
         </div>
       )}
     </section>

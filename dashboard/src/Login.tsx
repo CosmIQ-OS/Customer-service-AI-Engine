@@ -1,7 +1,13 @@
 import { useState } from 'react';
 import { api, ApiError, type AdminMe } from './api';
 
-export function LoginView({ onLogin }: { onLogin: (admin: AdminMe) => void }) {
+interface LoginViewProps {
+  onLogin: (admin: AdminMe) => void;
+  theme?: 'light' | 'dark';
+  onToggleTheme?: () => void;
+}
+
+export function LoginView({ onLogin, theme = 'light', onToggleTheme }: LoginViewProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -32,26 +38,42 @@ export function LoginView({ onLogin }: { onLogin: (admin: AdminMe) => void }) {
   return (
     <div className="login-screen">
       <div className="login-card">
-        <div className="login-icon">⚡</div>
-        <h1 className="login-title">CosmIQ <span style={{ color: 'var(--primary)' }}>OS</span></h1>
-        <p className="login-sub">AI Automation Command Center · Sign in</p>
+        <div className="login-head">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <div className="kicker">COSMIQ OS // OPERATOR AUTHENTICATION</div>
+            {onToggleTheme && (
+              <button
+                type="button"
+                className="theme-btn"
+                style={{ minHeight: 28, padding: '4px 8px', fontSize: '10px' }}
+                onClick={onToggleTheme}
+              >
+                {theme === 'light' ? 'PAPER' : 'OBSIDIAN'}
+              </button>
+            )}
+          </div>
+          <h1 className="login-title">
+            COSMIQ <span className="claim">OS</span>
+          </h1>
+          <p className="login-sub">Support &amp; Deterministic Quotation Workbench</p>
+        </div>
 
-        {error && <div className="banner error" style={{ marginBottom: 18 }}>{error}</div>}
+        {error && <div className="banner error">{error}</div>}
 
         <form className="form" onSubmit={submit}>
-          <div className="form-group" style={{ textAlign: 'left' }}>
-            <label className="form-label">Username</label>
+          <label>
+            Operator Username
             <input
               value={username}
               autoComplete="username"
-              placeholder="e.g. admin"
+              placeholder="admin"
               onChange={(e) => setUsername(e.target.value)}
               required
             />
-          </div>
+          </label>
 
-          <div className="form-group" style={{ textAlign: 'left' }}>
-            <label className="form-label">Password</label>
+          <label>
+            Password
             <input
               type="password"
               value={password}
@@ -60,10 +82,10 @@ export function LoginView({ onLogin }: { onLogin: (admin: AdminMe) => void }) {
               onChange={(e) => setPassword(e.target.value)}
               required
             />
-          </div>
+          </label>
 
-          <button className="btn" type="submit" disabled={busy} style={{ width: '100%', marginTop: 8 }}>
-            {busy ? 'Signing in…' : 'Sign in to Dashboard'}
+          <button className="btn primary" type="submit" disabled={busy} style={{ width: '100%', marginTop: 6 }}>
+            {busy ? 'AUTHENTICATING…' : 'SIGN IN TO WORKBENCH'}
           </button>
         </form>
       </div>

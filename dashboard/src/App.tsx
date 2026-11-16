@@ -8,20 +8,38 @@ import { LiveConversations } from './LiveConversations';
 
 type AnyRow = Record<string, any>;
 type TabKey = 'overview' | 'inbox' | 'intakes' | 'quotes' | 'services' | 'logs';
+type ThemeMode = 'light' | 'dark';
 
 function fmtTime(v?: string) {
   if (!v) return '';
   const d = new Date(v.includes('Z') ? v : v.replace(' ', 'T') + 'Z');
-  return isNaN(d.getTime()) ? v : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return isNaN(d.getTime())
+    ? v
+    : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-function Pill({ children, tone }: { children: any; tone?: 'orange' | 'black' | 'emerald' | 'rose' | 'sky' | 'whatsapp' | 'telegram' }) {
+function Pill({
+  children,
+  tone,
+}: {
+  children: any;
+  tone?: 'orange' | 'acc' | 'black' | 'emerald' | 'ok' | 'rose' | 'danger' | 'sky' | 'whatsapp' | 'telegram';
+}) {
   return <span className={`pill ${tone || ''}`}>{children}</span>;
+}
+
+function getInitialTheme(): ThemeMode {
+  try {
+    return localStorage.getItem('tandem-theme') === 'dark' ? 'dark' : 'light';
+  } catch {
+    return 'light';
+  }
 }
 
 export function App() {
   const [admin, setAdmin] = useState<AdminMe | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [summary, setSummary] = useState<any>(null);
   const [requests, setRequests] = useState<AnyRow[]>([]);
@@ -33,14 +51,27 @@ export function App() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  // Search filters
   const [intakeSearch, setIntakeSearch] = useState('');
   const [logFilter, setLogFilter] = useState<'all' | 'inbound' | 'outbound' | 'system'>('all');
 
-  // Simulator
-  const [sim, setSim] = useState({ channel: 'whatsapp', externalUserId: '917594827429', text: 'Hi, what services do you offer?' });
+  const [sim, setSim] = useState({
+    channel: 'whatsapp',
+    externalUserId: '917594827429',
+    text: 'Hi, what services do you offer?',
+  });
   const [simResult, setSimResult] = useState<any>(null);
   const [simBusy, setSimBusy] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try {
+      localStorage.setItem('tandem-theme', theme);
+    } catch {
+      // ignore storage failure
+    }
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -106,15 +137,17 @@ export function App() {
   if (!authChecked) {
     return (
       <div className="login-screen">
-        <div style={{ textAlign: 'center' }}>
-          <div className="login-icon" style={{ animation: 'spin 1s linear infinite' }}>⚡</div>
-          <p className="muted">Connecting to CosmIQ OS Command Center…</p>
+        <div className="login-card" style={{ textAlign: 'center' }}>
+          <div className="kicker">COSMIQ OS // INITIALIZING</div>
+          <p className="muted small" style={{ marginTop: 10 }}>
+            Connecting to Support &amp; Quotation Workbench…
+          </p>
         </div>
       </div>
     );
   }
 
-  if (!admin) return <LoginView onLogin={setAdmin} />;
+  if (!admin) return <LoginView onLogin={setAdmin} theme={theme} onToggleTheme={toggleTheme} />;
 
   const filteredIntakes = intakes.filter((row) => {
     const q = intakeSearch.toLowerCase();
@@ -132,166 +165,197 @@ export function App() {
     return row.direction === logFilter;
   });
 
+  const availableServicesCount = summary?.counts?.availableServices ?? services.filter((s) => s.status === 'available').length;
+  const completeIntakesCount = summary?.counts?.completeIntakes ?? intakes.filter((i) => i.status === 'complete').length;
+
   return (
     <div className="app">
-      {/* Top Navbar */}
+      {/* Editorial Command Header */}
       <header className="navbar">
         <div className="brand">
-          <div className="brand-logo">⚡</div>
+          <div className="brand-mark">CQ</div>
           <div className="brand-text">
             <h1>
-              CosmIQ <span style={{ color: 'var(--primary)' }}>OS</span>
-              <span className="brand-badge">Command Center v2</span>
+              <span>COSMIQ OS // SUPPORT &amp; QUOTATION WORKBENCH</span>
             </h1>
-            <p>AI Automation & Consultative Customer Engine</p>
+            <p>Deterministic quotations, WhatsApp enquiry routing &amp; human handover</p>
           </div>
         </div>
 
         <div className="toolbar">
-          <div className="status-indicator">
-            <span className="status-dot"></span>
-            <span>Live Server Active</span>
+          <div className="ai-confidence-pill">
+            <span className="ai-pulse-dot" />
+            <span>LIMS &amp; WHATSAPP ENGINE ACTIVE</span>
           </div>
 
+          <button
+            type="button"
+            className="theme-btn"
+            onClick={toggleTheme}
+            title="Switch Tandem Warm Paper / Obsidian Dark mode"
+          >
+            {theme === 'light' ? 'PAPER [LIGHT]' : 'OBSIDIAN [DARK]'}
+          </button>
+
           <div className="user-chip">
-            <div className="user-avatar">{admin.username[0].toUpperCase()}</div>
+            <span className="kicker" style={{ color: 'var(--accent-primary)' }}>OP</span>
             <span>{admin.username}</span>
           </div>
 
-          <button className="btn secondary" onClick={load} disabled={loading} title="Refresh Live Data">
-            {loading ? '⟳ Syncing…' : '⟳ Refresh'}
+          <button className="btn secondary" type="button" onClick={load} disabled={loading}>
+            {loading ? 'SYNCING…' : 'REFRESH'}
           </button>
-          <button className="btn danger" onClick={logout} title="Sign Out">
-            Log out
+          <button className="btn danger" type="button" onClick={logout}>
+            LOG OUT
           </button>
         </div>
       </header>
 
-      {error && <div className="banner error">{error}</div>}
+      {error && <div className="banner error" style={{ marginTop: 16 }}>{error}</div>}
 
-      {/* Navigation Tabs */}
-      <nav className="nav-tabs">
+      {/* Numbered Architectural Tab Navigation */}
+      <nav className="nav-tabs" aria-label="Workbench Sections">
         <button
+          type="button"
           className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
           onClick={() => setActiveTab('overview')}
         >
-          📊 Overview
+          <span className="tab-index">01</span>
+          <span>OVERVIEW</span>
         </button>
+
         <button
+          type="button"
           className={`tab-btn ${activeTab === 'inbox' ? 'active' : ''}`}
           onClick={() => setActiveTab('inbox')}
         >
-          💬 Live Inbox
-          <span className="tab-badge">Active</span>
+          <span className="tab-index">02</span>
+          <span>LIVE INBOX</span>
+          <span className="tab-badge">LIVE</span>
         </button>
+
         <button
+          type="button"
           className={`tab-btn ${activeTab === 'intakes' ? 'active' : ''}`}
           onClick={() => setActiveTab('intakes')}
         >
-          📋 Leads & Intake
+          <span className="tab-index">03</span>
+          <span>LEADS &amp; INTAKE</span>
           <span className="tab-badge">{intakes.length}</span>
         </button>
+
         <button
+          type="button"
           className={`tab-btn ${activeTab === 'quotes' ? 'active' : ''}`}
           onClick={() => setActiveTab('quotes')}
         >
-          💰 Quotes & Approvals
-          {approvalsCount > 0 && <span className="tab-badge alert">{approvalsCount} Pending</span>}
+          <span className="tab-index">04</span>
+          <span>QUOTES &amp; APPROVALS</span>
+          {approvalsCount > 0 && <span className="tab-badge alert">{approvalsCount} PENDING</span>}
         </button>
+
         <button
+          type="button"
           className={`tab-btn ${activeTab === 'services' ? 'active' : ''}`}
           onClick={() => setActiveTab('services')}
         >
-          🛠️ Services & Catalog
+          <span className="tab-index">05</span>
+          <span>CATALOG &amp; PRICING</span>
           <span className="tab-badge">{services.length}</span>
         </button>
+
         <button
+          type="button"
           className={`tab-btn ${activeTab === 'logs' ? 'active' : ''}`}
           onClick={() => setActiveTab('logs')}
         >
-          🔍 Simulator & Logs
+          <span className="tab-index">06</span>
+          <span>TELEMETRY &amp; LOGS</span>
         </button>
       </nav>
 
-      {/* TAB CONTENT */}
-
-      {/* 1. OVERVIEW TAB */}
+      {/* 01 OVERVIEW */}
       {activeTab === 'overview' && (
         <div>
-          {/* Top KPI Cards */}
-          <div className="grid stats">
-            <div className="card stat-card accent-purple">
-              <div className="stat-card-head">
-                <span className="stat-label">Active Services</span>
-                <span className="stat-icon">🛠️</span>
+          <div className="stats-grid">
+            <div className="stat-cell">
+              <div className="stat-cell-head">
+                <span className="stat-label">METRIC // 01 · SERVICES</span>
+                <Pill tone="ok">ACTIVE</Pill>
               </div>
-              <div className="stat-value">{summary?.counts?.availableServices ?? services.length} / {services.length}</div>
-              <div className="stat-subtext">Operational in CosmIQ catalog</div>
+              <div className="stat-value">
+                {availableServicesCount} <span className="muted" style={{ fontSize: '1.1rem' }}>/ {services.length}</span>
+              </div>
+              <div className="stat-subtext">Operational services in catalog</div>
             </div>
 
-            <div className="card stat-card accent-emerald">
-              <div className="stat-card-head">
-                <span className="stat-label">Captured Leads</span>
-                <span className="stat-icon">📋</span>
+            <div className="stat-cell">
+              <div className="stat-cell-head">
+                <span className="stat-label">METRIC // 02 · INTAKES</span>
+                <Pill tone="ok">CAPTURED</Pill>
               </div>
-              <div className="stat-value">{summary?.counts?.intakes ?? intakes.length}</div>
-              <div className="stat-subtext">{summary?.counts?.completeIntakes ?? 0} qualified intakes completed</div>
+              <div className="stat-value ok">{summary?.counts?.intakes ?? intakes.length}</div>
+              <div className="stat-subtext">
+                {completeIntakesCount} qualified {completeIntakesCount === 1 ? 'lead' : 'leads'} completed
+              </div>
             </div>
 
-            <div className="card stat-card accent-amber">
-              <div className="stat-card-head">
-                <span className="stat-label">Pending Approvals</span>
-                <span className="stat-icon">⏳</span>
+            <div className="stat-cell">
+              <div className="stat-cell-head">
+                <span className="stat-label">METRIC // 03 · APPROVALS</span>
+                {approvalsCount > 0 ? <Pill tone="acc">ACTION</Pill> : <Pill>CLEAR</Pill>}
               </div>
-              <div className="stat-value">{approvalsCount}</div>
-              <div className="stat-subtext">{approvalsCount > 0 ? 'Quotes require admin review' : 'All quotes up to date'}</div>
+              <div className={`stat-value ${approvalsCount > 0 ? 'accent' : ''}`}>{approvalsCount}</div>
+              <div className="stat-subtext">
+                {approvalsCount > 0 ? 'Quotes awaiting operator review' : 'No pending quotation approvals'}
+              </div>
             </div>
 
-            <div className="card stat-card accent-sky">
-              <div className="stat-card-head">
-                <span className="stat-label">Knowledge Base FAQs</span>
-                <span className="stat-icon">📚</span>
+            <div className="stat-cell">
+              <div className="stat-cell-head">
+                <span className="stat-label">METRIC // 04 · FAQS</span>
+                <Pill>GROUNDED</Pill>
               </div>
               <div className="stat-value">{summary?.counts?.faqs ?? '—'}</div>
-              <div className="stat-subtext">Grounded answers for Gemini AI</div>
+              <div className="stat-subtext">{summary?.counts?.logs ?? logs.length} telemetry events recorded</div>
             </div>
           </div>
 
-          {/* Quick Split View */}
-          <div className="grid" style={{ gridTemplateColumns: '1.4fr 1fr' }}>
-            {/* Quick Inbox Preview */}
-            <div>
-              <LiveConversations />
-            </div>
+          <div className="stack">
+            <LiveConversations />
 
-            {/* Quick Leads & Pending Approvals Column */}
-            <div className="stack">
+            <div className="split-grid-equal">
               <section className="card">
                 <div className="panel-title">
-                  <span>Recent Qualified Leads</span>
-                  <button className="btn secondary" style={{ padding: '4px 10px', fontSize: '0.78rem' }} onClick={() => setActiveTab('intakes')}>
-                    View All →
+                  <strong>Recent Qualified Leads</strong>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    style={{ minHeight: 30, padding: '4px 10px', fontSize: '11px' }}
+                    onClick={() => setActiveTab('intakes')}
+                  >
+                    VIEW ALL LEADS
                   </button>
                 </div>
 
                 {intakes.length === 0 ? (
-                  <div className="muted small" style={{ padding: '20px 0', textAlign: 'center' }}>
-                    No client intakes collected yet. Once a client messages on WhatsApp, their company details appear here.
+                  <div className="muted small" style={{ padding: '16px 0' }}>
+                    No client intakes recorded yet. Incoming WhatsApp leads populate here automatically.
                   </div>
                 ) : (
-                  <div style={{ display: 'grid', gap: 10 }}>
+                  <div className="stack" style={{ gap: 10 }}>
                     {intakes.slice(0, 4).map((item, idx) => (
-                      <div key={idx} style={{ background: 'var(--bg-subtle)', padding: 12, borderRadius: 'var(--radius)', border: '1px solid var(--line)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <div key={item.id ?? idx} className="list-row" style={{ flexDirection: 'column', gap: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 12 }}>
                           <strong>{item.company_name || 'Prospect Lead'}</strong>
-                          <Pill tone={item.status === 'complete' ? 'emerald' : 'orange'}>{item.status}</Pill>
+                          <Pill tone={item.status === 'complete' ? 'ok' : 'acc'}>{item.status}</Pill>
                         </div>
-                        <div className="muted small" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          <span>Size: {item.company_size || '—'}</span>
-                          <span>·</span>
-                          <span>Tools: {item.current_tools || '—'}</span>
-                          <span>·</span>
-                          <span>Service: {item.service_name || '—'}</span>
+                        <div className="mono muted" style={{ fontSize: '11px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <span>SIZE: {item.company_size || '—'}</span>
+                          <span>//</span>
+                          <span>TOOLS: {item.current_tools || '—'}</span>
+                          <span>//</span>
+                          <span className="claim">{item.service_name || '—'}</span>
                         </div>
                       </div>
                     ))}
@@ -299,66 +363,56 @@ export function App() {
                 )}
               </section>
 
-              <section className="card">
-                <div className="panel-title">
-                  <span>Pending Quotes</span>
-                  <button className="btn secondary" style={{ padding: '4px 10px', fontSize: '0.78rem' }} onClick={() => setActiveTab('quotes')}>
-                    Manage →
-                  </button>
-                </div>
-                <Approvals refreshKey={dataVersion} onChanged={load} />
-              </section>
+              <Approvals refreshKey={dataVersion} onChanged={load} />
             </div>
           </div>
         </div>
       )}
 
-      {/* 2. LIVE INBOX TAB */}
-      {activeTab === 'inbox' && (
-        <div>
-          <LiveConversations />
-        </div>
-      )}
+      {/* 02 LIVE INBOX */}
+      {activeTab === 'inbox' && <LiveConversations />}
 
-      {/* 3. LEADS & INTAKES TAB */}
+      {/* 03 LEADS & INTAKE */}
       {activeTab === 'intakes' && (
         <section className="card">
           <div className="panel-title">
-            <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Qualified Client Leads (Service Intakes)</h2>
-            <span className="pill emerald">{intakes.filter((i) => i.status === 'complete').length} Complete / {intakes.length} Total</span>
+            <strong>Qualified Client Leads (Service Intakes)</strong>
+            <Pill tone="ok">
+              {completeIntakesCount} COMPLETE / {intakes.length} TOTAL
+            </Pill>
           </div>
-          <p className="sub" style={{ margin: '0 0 16px' }}>
-            Details collected conversationally by CosmIQ Gemini AI via WhatsApp and Telegram.
+          <p className="sub">
+            Structured company, team size, tooling stack, and requested service records captured conversationally.
           </p>
 
           <div className="search-bar">
             <input
               className="search-input"
-              placeholder="🔍 Search company, service, tools..."
+              placeholder="Filter by company, service, tools, or phone ID…"
               value={intakeSearch}
               onChange={(e) => setIntakeSearch(e.target.value)}
             />
           </div>
 
           <Table
-            cols={['Channel', 'Client User', 'Company Name', 'Team Size', 'Current Stack / Tools', 'Requested Service', 'Lang', 'Status', 'Last Active']}
+            cols={['Channel', 'Client ID', 'Company', 'Size', 'Tools Stack', 'Requested Service', 'Lang', 'Status', 'Updated']}
             rows={filteredIntakes}
             render={(r) => [
               <Pill tone={r.channel === 'whatsapp' ? 'whatsapp' : 'telegram'}>{r.channel}</Pill>,
               <span className="mono">{r.external_user_id}</span>,
               <strong>{r.company_name || '—'}</strong>,
-              <span className="small">{r.company_size || '—'}</span>,
+              <span className="mono small">{r.company_size || '—'}</span>,
               <span className="small">{r.current_tools || '—'}</span>,
-              <span className="small" style={{ color: 'var(--primary)', fontWeight: 600 }}>{r.service_name || '—'}</span>,
-              <Pill>{r.language?.toUpperCase() || 'EN'}</Pill>,
-              <Pill tone={r.status === 'complete' ? 'emerald' : 'orange'}>{r.status}</Pill>,
-              <span className="muted small">{fmtTime(r.updated_at)}</span>,
+              <span className="small claim" style={{ fontWeight: 600 }}>{r.service_name || '—'}</span>,
+              <Pill>{r.language || 'en'}</Pill>,
+              <Pill tone={r.status === 'complete' ? 'ok' : 'acc'}>{r.status}</Pill>,
+              <span className="mono muted">{fmtTime(r.updated_at)}</span>,
             ]}
           />
         </section>
       )}
 
-      {/* 4. QUOTES & APPROVALS TAB */}
+      {/* 04 QUOTES & APPROVALS */}
       {activeTab === 'quotes' && (
         <div className="stack">
           <Approvals refreshKey={dataVersion} onChanged={load} />
@@ -366,28 +420,28 @@ export function App() {
         </div>
       )}
 
-      {/* 5. SERVICES & CATALOG TAB */}
+      {/* 05 CATALOG & PRICING */}
       {activeTab === 'services' && (
-        <div className="grid" style={{ gridTemplateColumns: '1.3fr 1fr' }}>
+        <div className="split-grid">
           <section className="card">
             <div className="panel-title">
-              <h2 style={{ margin: 0, fontSize: '1.15rem' }}>Services Catalog</h2>
-              <span className="pill emerald">{services.filter((s) => s.status === 'available').length} Available</span>
+              <strong>Services Catalog</strong>
+              <Pill tone="ok">{availableServicesCount} AVAILABLE</Pill>
             </div>
-            <p className="sub" style={{ margin: '0 0 16px' }}>
-              Services presented by the AI assistant when prospective clients inquire about CosmIQ capabilities.
+            <p className="sub">
+              Authoritative service catalog exposed to the conversational assistant.
             </p>
 
             <Table
-              cols={['Service Name', 'Category', 'Status', 'Description / Note']}
+              cols={['Service Name', 'Category', 'Status', 'Availability Note']}
               rows={services}
               render={(s) => [
-                <div>
-                  <strong>{s.name}</strong>
-                </div>,
-                <Pill>{s.category || 'General'}</Pill>,
-                <Pill tone={s.status === 'available' ? 'emerald' : 'orange'}>{s.status}</Pill>,
-                <span className="small" style={{ color: 'var(--fg-muted)' }}>{s.availability_note || s.description}</span>,
+                <strong>{s.name}</strong>,
+                <Pill>{s.category || 'general'}</Pill>,
+                <Pill tone={s.status === 'available' ? 'ok' : 'acc'}>{s.status}</Pill>,
+                <span className="small" style={{ color: 'var(--text-secondary)' }}>
+                  {s.availability_note || s.description}
+                </span>,
               ]}
             />
           </section>
@@ -396,103 +450,119 @@ export function App() {
         </div>
       )}
 
-      {/* 6. SIMULATOR & LOGS TAB */}
+      {/* 06 TELEMETRY & LOGS */}
       {activeTab === 'logs' && (
-        <div className="grid" style={{ gridTemplateColumns: '1fr 1.3fr' }}>
-          {/* Engine Simulator */}
+        <div className="split-grid-equal">
           <section className="card">
             <div className="panel-title">
-              <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Engine Chat Simulator</h2>
-              <span className="pill">Testing Sandbox</span>
+              <strong>Engine Chat Simulator</strong>
+              <Pill>SANDBOX</Pill>
             </div>
-            <p className="sub" style={{ margin: '0 0 16px' }}>
-              Test Gemini 2.5 Flash agent reasoning and tool execution without sending live WhatsApp messages.
+            <p className="sub">
+              Verify deterministic tool calls, language detection, and quote guards locally.
             </p>
 
             <form className="form" onSubmit={runSim}>
-              <div className="form-group">
-                <label className="form-label">Simulated Channel</label>
+              <label>
+                Channel
                 <select value={sim.channel} onChange={(e) => setSim({ ...sim, channel: e.target.value })}>
-                  <option value="whatsapp">WhatsApp</option>
-                  <option value="telegram">Telegram</option>
-                  <option value="web">Web Widget</option>
+                  <option value="whatsapp">whatsapp</option>
+                  <option value="telegram">telegram</option>
+                  <option value="web">web</option>
                 </select>
-              </div>
+              </label>
 
-              <div className="form-group">
-                <label className="form-label">Simulated User Phone / ID</label>
+              <label>
+                User Phone / External ID
                 <input value={sim.externalUserId} onChange={(e) => setSim({ ...sim, externalUserId: e.target.value })} />
-              </div>
+              </label>
 
-              <div className="form-group">
-                <label className="form-label">Message Payload</label>
+              <label>
+                Inbound Payload
                 <textarea
                   rows={3}
                   value={sim.text}
                   onChange={(e) => setSim({ ...sim, text: e.target.value })}
-                  placeholder="e.g. My company is Acme Corp, 25 team size, we use Slack and need WhatsApp Automation."
                 />
-              </div>
+              </label>
 
-              <button className="btn" type="submit" disabled={simBusy}>
-                {simBusy ? '⚡ Processing with Gemini…' : 'Run Simulation'}
+              <button className="btn primary" type="submit" disabled={simBusy}>
+                {simBusy ? 'PROCESSING…' : 'RUN SIMULATION'}
               </button>
             </form>
 
             {simResult && (
               <div className="banner success" style={{ marginTop: 16, display: 'block' }}>
-                <div style={{ marginBottom: 6 }}>
-                  <strong>Intent:</strong> <Pill tone="emerald">{simResult.intent}</Pill> &nbsp;
-                  <strong>Session:</strong> <span className="mono">{simResult.sessionId?.slice(0, 8)}</span>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+                  <span className="kicker">INTENT</span>
+                  <Pill tone="ok">{simResult.intent}</Pill>
+                  <span className="kicker">SESSION</span>
+                  <span className="mono">{simResult.sessionId?.slice(0, 8)}</span>
                 </div>
-                <div style={{ background: '#0b1120', padding: 12, borderRadius: 'var(--radius)', marginTop: 8, whiteSpace: 'pre-wrap', color: '#f8fafc' }}>
+                <div
+                  style={{
+                    background: 'var(--bg-elevated)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-default)',
+                    padding: 12,
+                    whiteSpace: 'pre-wrap',
+                  }}
+                >
                   {simResult.reply}
                 </div>
               </div>
             )}
           </section>
 
-          {/* Audit Logs */}
           <div className="stack">
             <section className="card">
               <div className="panel-title">
-                <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Audit Event Logs</h2>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button className={`tab-btn ${logFilter === 'all' ? 'active' : ''}`} style={{ padding: '3px 8px', fontSize: '0.74rem' }} onClick={() => setLogFilter('all')}>All</button>
-                  <button className={`tab-btn ${logFilter === 'inbound' ? 'active' : ''}`} style={{ padding: '3px 8px', fontSize: '0.74rem' }} onClick={() => setLogFilter('inbound')}>Inbound</button>
-                  <button className={`tab-btn ${logFilter === 'outbound' ? 'active' : ''}`} style={{ padding: '3px 8px', fontSize: '0.74rem' }} onClick={() => setLogFilter('outbound')}>Outbound</button>
+                <strong>Telemetry Audit Logs</strong>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {(['all', 'inbound', 'outbound', 'system'] as const).map((dir) => (
+                    <button
+                      key={dir}
+                      type="button"
+                      className={`inbox-filter-btn ${logFilter === dir ? 'active' : ''}`}
+                      onClick={() => setLogFilter(dir)}
+                    >
+                      {dir}
+                    </button>
+                  ))}
                 </div>
               </div>
 
               <Table
-                cols={['Timestamp', 'Flow', 'Channel', 'Event', 'Message Snippet']}
-                rows={filteredLogs.slice(0, 20)}
+                cols={['Time', 'Dir', 'Channel', 'Event', 'Message']}
+                rows={filteredLogs.slice(0, 25)}
                 render={(r) => [
-                  <span className="muted small">{fmtTime(r.created_at)}</span>,
-                  <Pill tone={r.direction === 'inbound' ? 'orange' : r.direction === 'outbound' ? 'emerald' : undefined}>{r.direction}</Pill>,
+                  <span className="mono muted">{fmtTime(r.created_at)}</span>,
+                  <Pill tone={r.direction === 'inbound' ? 'acc' : r.direction === 'outbound' ? 'ok' : undefined}>
+                    {r.direction}
+                  </Pill>,
                   <Pill>{r.channel}</Pill>,
                   <span className="mono small">{r.event}</span>,
-                  <span className="small log-msg" style={{ color: 'var(--fg-muted)' }}>{r.message}</span>,
+                  <span className="small log-msg" style={{ color: 'var(--text-secondary)' }}>{r.message}</span>,
                 ]}
               />
             </section>
 
             <section className="card">
               <div className="panel-title">
-                <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Support Requests & Escalations</h2>
-                <span className="pill">{requests.length} Requests</span>
+                <strong>Support Requests &amp; Escalations</strong>
+                <Pill>{requests.length} TOTAL</Pill>
               </div>
               <Table
-                cols={['ID', 'Channel', 'Customer', 'Kind', 'Status', 'Subject / Body', 'Date']}
+                cols={['ID', 'Channel', 'Customer', 'Kind', 'Status', 'Body', 'Created']}
                 rows={requests}
                 render={(r) => [
                   <span className="mono">#{r.id}</span>,
                   <Pill>{r.channel}</Pill>,
                   <span className="mono">{r.external_user_id}</span>,
-                  <span>{r.kind}</span>,
-                  <Pill tone={r.status === 'open' ? 'orange' : 'emerald'}>{r.status}</Pill>,
+                  <span className="mono small">{r.kind}</span>,
+                  <Pill tone={r.status === 'open' ? 'acc' : 'ok'}>{r.status}</Pill>,
                   <span className="small log-msg">{r.body || r.subject}</span>,
-                  <span className="muted small">{fmtTime(r.created_at)}</span>,
+                  <span className="mono muted">{fmtTime(r.created_at)}</span>,
                 ]}
               />
             </section>
@@ -505,18 +575,28 @@ export function App() {
 
 function Table({ cols, rows, render }: { cols: string[]; rows: AnyRow[]; render: (r: AnyRow) => any[] }) {
   if (!rows.length) {
-    return <div className="muted small" style={{ padding: 24, textAlign: 'center' }}>No records found.</div>;
+    return (
+      <div className="muted small" style={{ padding: '24px 0', textAlign: 'center', border: '1px solid var(--border-default)', background: 'var(--bg-elevated)' }}>
+        No records found.
+      </div>
+    );
   }
   return (
     <div className="table-wrap">
       <table>
         <thead>
-          <tr>{cols.map((c) => <th key={c}>{c}</th>)}</tr>
+          <tr>
+            {cols.map((c) => (
+              <th key={c}>{c}</th>
+            ))}
+          </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={r.id ?? i}>
-              {render(r).map((cell, j) => <td key={j}>{cell}</td>)}
+              {render(r).map((cell, j) => (
+                <td key={j}>{cell}</td>
+              ))}
             </tr>
           ))}
         </tbody>
