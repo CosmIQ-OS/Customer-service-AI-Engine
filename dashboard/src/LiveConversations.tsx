@@ -32,14 +32,30 @@ interface Message {
 function fmtTime(v?: string | null): string {
   if (!v) return '';
   const d = new Date(v.includes('Z') ? v : v.replace(' ', 'T') + 'Z');
-  return isNaN(d.getTime()) ? v : d.toLocaleTimeString();
+  return isNaN(d.getTime()) ? v : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function modePill(mode: Mode, status: string) {
-  if (status === 'closed') return <span className="pill">closed</span>;
-  if (mode === 'human') return <span className="pill black">human</span>;
-  if (mode === 'paused') return <span className="pill orange">ai paused</span>;
-  return <span className="pill">ai</span>;
+function getInitials(name?: string, fallback = 'U'): string {
+  if (!name) return fallback.slice(0, 2).toUpperCase();
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+function ChannelBadge({ channel }: { channel: string }) {
+  const isWa = channel.toLowerCase() === 'whatsapp';
+  return (
+    <span className={`pill ${isWa ? 'whatsapp' : 'telegram'}`}>
+      {isWa ? '🟢 WhatsApp' : '🔵 Telegram'}
+    </span>
+  );
+}
+
+function ModeBadge({ mode, status }: { mode: Mode; status: string }) {
+  if (status === 'closed') return <span className="pill">Closed</span>;
+  if (mode === 'human') return <span className="pill human">👤 Human Operator</span>;
+  if (mode === 'paused') return <span className="pill orange">⏸️ AI Paused</span>;
+  return <span className="pill emerald">🤖 AI Active</span>;
 }
 
 export function LiveConversations() {
@@ -47,10 +63,12 @@ export function LiveConversations() {
   const [selected, setSelected] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
+  const [search, setSearch] = useState('');
+  const [filterMode, setFilterMode] = useState<'all' | 'human' | 'ai'>('all');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const listRef = useRef<HTMLDivElement | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const loadList = useCallback(async () => {
     const payload = await api<{ conversations: Conversation[] }>('/api/conversations?limit=100');
@@ -63,8 +81,6 @@ export function LiveConversations() {
     setMessages(payload.messages);
   }, []);
 
-  // The selected conversation is kept in a ref so the polling tick can refresh
-  // the open thread without re-running the effect that selects a conversation.
   const selectedRef = useRef<string | null>(null);
   selectedRef.current = selected;
 
@@ -82,7 +98,7 @@ export function LiveConversations() {
       }
     };
     void tick();
-    const timer = setInterval(tick, 5000);
+    const timer = setInterval(tick, 4000);
     return () => {
       active = false;
       clearInterval(timer);
@@ -96,6 +112,10 @@ export function LiveConversations() {
     }
     void loadThread(selected).catch(() => undefined);
   }, [selected, loadThread]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   async function act(path: string, label: string) {
     if (!selected) return;
@@ -114,8 +134,8 @@ export function LiveConversations() {
     }
   }
 
-  async function sendReply(event: React.FormEvent) {
-    event.preventDefault();
+  async function sendReply(event?: React.FormEvent) {
+    if (event) event.preventDefault();
     if (!selected || !draft.trim()) return;
     setBusy(true);
     setError('');
@@ -125,7 +145,7 @@ export function LiveConversations() {
         body: JSON.stringify({ text: draft.trim() }),
       });
       setDraft('');
-      setNotice(result.delivered ? 'Reply sent to the customer.' : 'Reply stored; channel delivery is pending.');
+      setNotice(result.delivered ? 'Reply sent successfully to customer.' : 'Reply saved. (Live channel delivery is processing)');
       await loadThread(selected);
       await loadList();
     } catch (err) {
@@ -135,121 +155,238 @@ export function LiveConversations() {
     }
   }
 
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      void sendReply();
+    }
+  }
+
   const active = conversations.find((row) => row.sessionId === selected);
-  const waiting = conversations.filter((row) => row.status === 'open' && row.mode !== 'ai');
+  const waitingCount = conversations.filter((row) => row.status === 'open' && row.mode !== 'ai').length;
+
+  const filtered = conversations.filter((c) => {
+    const q = search.toLowerCase();
+    const matchSearch =
+      !q ||
+      c.displayName?.toLowerCase().includes(q) ||
+      c.externalUserId.toLowerCase().includes(q) ||
+      c.lastMessage?.toLowerCase().includes(q);
+
+    if (!matchSearch) return false;
+    if (filterMode === 'human') return c.mode === 'human' || c.mode === 'paused';
+    if (filterMode === 'ai') return c.mode === 'ai';
+    return true;
+  });
 
   return (
-    <section className="card">
-      <h2 className="panel-title">
-        Live Conversations <span>WhatsApp-style inbox · AI pauses when a human takes over</span>
-      </h2>
-
-      <div className="toolbar" style={{ marginBottom: 10 }}>
-        <span className="pill orange">{waiting.length} waiting for a human</span>
-        <span className="pill">{conversations.length} total</span>
-        <span className="muted small">Idle conversations close automatically after 60 minutes.</span>
+    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>
+            Live Conversations Inbox
+          </h2>
+          <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: 'var(--fg-muted)' }}>
+            Real-time customer chats from WhatsApp and Telegram. AI assists and hands over seamlessly.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {waitingCount > 0 && <span className="pill orange">⚡ {waitingCount} Needs Human</span>}
+          <span className="pill">{conversations.length} Active Chats</span>
+        </div>
       </div>
 
-      {error && <div className="card error" style={{ marginBottom: 12 }}>{error}</div>}
-      {notice && <div className="success" style={{ marginBottom: 12 }}>{notice}</div>}
+      {error && <div className="banner error" style={{ margin: 16 }}>{error}</div>}
+      {notice && <div className="banner success" style={{ margin: 16 }}>{notice}</div>}
 
-      <div className="chat-layout">
-        <div className="chat-list" ref={listRef}>
-          {conversations.length === 0 ? (
-            <div className="muted small">No conversations yet. Send a simulated chat message to start one.</div>
-          ) : (
-            conversations.map((conversation) => (
+      <div className="inbox-layout">
+        {/* Sidebar list */}
+        <div className="inbox-sidebar">
+          <div className="inbox-sidebar-head">
+            <input
+              className="inbox-search"
+              placeholder="🔍 Search name, phone..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
               <button
-                key={conversation.sessionId}
-                type="button"
-                className={`chat-list-item ${conversation.sessionId === selected ? 'active' : ''}`}
-                onClick={() => {
-                  setSelected(conversation.sessionId);
-                  void loadThread(conversation.sessionId).catch(() => undefined);
-                }}
+                className={`tab-btn ${filterMode === 'all' ? 'active' : ''}`}
+                style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                onClick={() => setFilterMode('all')}
               >
-                <div className="chat-list-head">
-                  <strong>{conversation.displayName || conversation.externalUserId}</strong>
-                  {modePill(conversation.mode, conversation.status)}
-                </div>
-                <div className="muted small">
-                  {conversation.channel} · {conversation.externalUserId}
-                </div>
-                <div className="chat-preview">{conversation.lastMessage || 'No messages yet.'}</div>
-                <div className="muted small">
-                  {fmtTime(conversation.lastMessageAt ?? conversation.updatedAt)}
-                  {conversation.unreadCount > 0 ? ` · ${conversation.unreadCount} unread` : ''}
-                </div>
+                All ({conversations.length})
               </button>
-            ))
-          )}
+              <button
+                className={`tab-btn ${filterMode === 'human' ? 'active' : ''}`}
+                style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                onClick={() => setFilterMode('human')}
+              >
+                Needs Action ({waitingCount})
+              </button>
+              <button
+                className={`tab-btn ${filterMode === 'ai' ? 'active' : ''}`}
+                style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                onClick={() => setFilterMode('ai')}
+              >
+                AI Auto
+              </button>
+            </div>
+          </div>
+
+          <div className="inbox-list">
+            {filtered.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--fg-muted)', fontSize: '0.85rem' }}>
+                No matching conversations found.
+              </div>
+            ) : (
+              filtered.map((c) => {
+                const isSelected = c.sessionId === selected;
+                const isWa = c.channel.toLowerCase() === 'whatsapp';
+                return (
+                  <button
+                    key={c.sessionId}
+                    type="button"
+                    className={`inbox-item ${isSelected ? 'active' : ''}`}
+                    onClick={() => {
+                      setSelected(c.sessionId);
+                      void loadThread(c.sessionId).catch(() => undefined);
+                    }}
+                  >
+                    <div className={`inbox-item-avatar ${isWa ? 'whatsapp' : ''}`}>
+                      {getInitials(c.displayName || c.externalUserId)}
+                    </div>
+                    <div className="inbox-item-content">
+                      <div className="inbox-item-head">
+                        <span className="inbox-item-name">{c.displayName || c.externalUserId}</span>
+                        <span className="inbox-item-time">{fmtTime(c.lastMessageAt ?? c.updatedAt)}</span>
+                      </div>
+                      <div className="inbox-item-msg">
+                        {c.lastMessage || 'No messages yet'}
+                      </div>
+                      <div className="inbox-item-meta">
+                        <ChannelBadge channel={c.channel} />
+                        <ModeBadge mode={c.mode} status={c.status} />
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
         </div>
 
-        <div className="chat-thread">
+        {/* Chat Thread Pane */}
+        <div className="chat-pane">
           {!active ? (
-            <div className="muted small">Select a conversation to read it.</div>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--fg-muted)' }}>
+              Select a conversation from the left to inspect and reply.
+            </div>
           ) : (
             <>
-              <div className="chat-thread-head">
-                <div>
-                  <strong>{active.displayName || active.externalUserId}</strong>
-                  <div className="muted small">
-                    {active.channel} · {active.externalUserId} · {modePill(active.mode, active.status)}
+              <div className="chat-pane-head">
+                <div className="chat-user-info">
+                  <div className="chat-user-avatar">
+                    {getInitials(active.displayName || active.externalUserId)}
+                  </div>
+                  <div className="chat-user-title">
+                    <h3>{active.displayName || active.externalUserId}</h3>
+                    <p>
+                      {active.externalUserId} · <ChannelBadge channel={active.channel} /> · <ModeBadge mode={active.mode} status={active.status} />
+                    </p>
                   </div>
                 </div>
+
                 <div className="toolbar">
                   {active.mode === 'ai' ? (
-                    <button className="btn secondary" type="button" disabled={busy} onClick={() => act('/pause', 'AI paused for this conversation.')}>
-                      Pause AI
-                    </button>
+                    <>
+                      <button
+                        className="btn secondary"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => act('/pause', 'AI paused for this customer.')}
+                      >
+                        ⏸️ Pause AI
+                      </button>
+                      <button
+                        className="btn"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => act('/takeover', 'You took over! The AI is now silent.')}
+                      >
+                        ✋ Take Over
+                      </button>
+                    </>
                   ) : (
-                    <button className="btn secondary" type="button" disabled={busy} onClick={() => act('/handback', 'Conversation handed back to the AI.')}>
-                      Hand back to AI
-                    </button>
-                  )}
-                  {active.mode !== 'human' && (
-                    <button className="btn" type="button" disabled={busy} onClick={() => act('/takeover', 'You now own this conversation.')}>
-                      Take over
+                    <button
+                      className="btn success"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => act('/handback', 'Conversation handed back to CosmIQ AI.')}
+                    >
+                      🤖 Hand Back to AI
                     </button>
                   )}
                 </div>
               </div>
 
-              <div className="chat-messages">
+              <div className="chat-thread-stream">
                 {messages.length === 0 ? (
-                  <div className="muted small">No messages in this conversation yet.</div>
+                  <div style={{ textAlign: 'center', color: 'var(--fg-muted)', marginTop: 40 }}>
+                    No messages recorded yet in this session.
+                  </div>
                 ) : (
-                  messages.map((message) => (
-                    <div key={message.id} className={`chat-bubble ${message.role}`}>
-                      <div className="chat-bubble-role">
-                        {message.role === 'user' ? 'Customer' : message.role === 'human' ? 'You' : 'AI'} · {fmtTime(message.created_at)}
+                  messages.map((m) => {
+                    const isUser = m.role === 'user';
+                    const isAi = m.role === 'assistant';
+                    return (
+                      <div key={m.id} className={`msg-row ${m.role}`}>
+                        <div className="msg-bubble">{m.content}</div>
+                        <div className="msg-meta">
+                          <span className="msg-role-tag">
+                            {isUser ? 'Customer' : isAi ? '🤖 CosmIQ AI' : '👤 Operator'}
+                          </span>
+                          <span>·</span>
+                          <span>{fmtTime(m.created_at)}</span>
+                        </div>
                       </div>
-                      <div>{message.content}</div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
+                <div ref={messagesEndRef} />
               </div>
 
-              <form className="chat-composer" onSubmit={sendReply}>
-                <textarea
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  placeholder="Reply to the customer…"
-                  rows={2}
-                />
-                <button className="btn" type="submit" disabled={busy || !draft.trim()}>
-                  {busy ? 'Sending…' : 'Send'}
-                </button>
-              </form>
-              <p className="muted small">
-                {active.mode === 'ai'
-                  ? 'The AI is answering this conversation. Take over to reply manually.'
-                  : 'The AI stays silent while you own this conversation.'}
-              </p>
+              <div className="chat-composer-box">
+                <form className="chat-composer-form" onSubmit={sendReply}>
+                  <textarea
+                    className="chat-input"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Type an instant reply (Enter to send, Shift+Enter for new line)..."
+                    rows={2}
+                  />
+                  <button
+                    className="btn"
+                    type="submit"
+                    disabled={busy || !draft.trim()}
+                    style={{ height: 48, minWidth: 90 }}
+                  >
+                    {busy ? 'Sending…' : 'Send ➤'}
+                  </button>
+                </form>
+                <div className="chat-status-tip">
+                  {active.mode === 'ai' ? (
+                    <span>💡 <strong>AI Active Mode:</strong> Gemini will automatically reply to customer messages. Take over to reply directly.</span>
+                  ) : (
+                    <span>⚠️ <strong>Operator Mode:</strong> AI is silent. Messages you send here will be delivered directly to the customer's WhatsApp.</span>
+                  )}
+                </div>
+              </div>
             </>
           )}
         </div>
       </div>
-    </section>
+    </div>
   );
 }
