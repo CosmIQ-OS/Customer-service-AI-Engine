@@ -322,7 +322,7 @@ export function App() {
           </div>
 
           <div className="stack">
-            <LiveConversations />
+            <LiveConversations onUnauthorized={() => setAdmin(null)} />
 
             <div className="split-grid-equal">
               <section className="card">
@@ -370,7 +370,7 @@ export function App() {
       )}
 
       {/* 02 LIVE INBOX */}
-      {activeTab === 'inbox' && <LiveConversations />}
+      {activeTab === 'inbox' && <LiveConversations onUnauthorized={() => setAdmin(null)} />}
 
       {/* 03 LEADS & INTAKE */}
       {activeTab === 'intakes' && (

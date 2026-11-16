@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from './api';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { api, ApiError } from './api';
 
 type Mode = 'ai' | 'human' | 'paused';
 
@@ -58,7 +58,92 @@ function ModeBadge({ mode, status }: { mode: Mode; status: string }) {
   return <span className="pill ok">AI ACTIVE</span>;
 }
 
-export function LiveConversations() {
+/**
+ * Clean markdown-aware renderer for chat messages.
+ * Formats bold (**text**), bullet lists, and numbered lists cleanly.
+ */
+function FormattedMessage({ text }: { text: string }) {
+  if (!text) return null;
+
+  const lines = text.split('\n');
+  const elements: ReactNode[] = [];
+  let currentList: ReactNode[] = [];
+  let isNumbered = false;
+
+  const flushList = () => {
+    if (currentList.length > 0) {
+      if (isNumbered) {
+        elements.push(
+          <ol key={`ol-${elements.length}`} className="msg-list ordered">
+            {currentList}
+          </ol>
+        );
+      } else {
+        elements.push(
+          <ul key={`ul-${elements.length}`} className="msg-list">
+            {currentList}
+          </ul>
+        );
+      }
+      currentList = [];
+    }
+  };
+
+  const parseInline = (line: string): ReactNode[] => {
+    const parts: ReactNode[] = [];
+    const regex = /\*\*(.+?)\*\*|\*(.+?)\*/g;
+    let lastIndex = 0;
+    let match;
+    while ((match = regex.exec(line)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(line.slice(lastIndex, match.index));
+      }
+      const boldText = match[1] || match[2];
+      parts.push(<strong key={match.index}>{boldText}</strong>);
+      lastIndex = regex.lastIndex;
+    }
+    if (lastIndex < line.length) {
+      parts.push(line.slice(lastIndex));
+    }
+    return parts;
+  };
+
+  lines.forEach((line, idx) => {
+    const trimmed = line.trim();
+    const bulletMatch = trimmed.match(/^[\*\-•]\s+(.*)$/);
+    const numMatch = trimmed.match(/^(\d+)[.)]\s+(.*)$/);
+
+    if (bulletMatch) {
+      if (isNumbered) flushList();
+      isNumbered = false;
+      currentList.push(<li key={`li-${idx}`}>{parseInline(bulletMatch[1])}</li>);
+    } else if (numMatch) {
+      if (!isNumbered) flushList();
+      isNumbered = true;
+      currentList.push(<li key={`li-${idx}`}>{parseInline(numMatch[2])}</li>);
+    } else {
+      flushList();
+      if (trimmed === '') {
+        elements.push(<div key={`sp-${idx}`} className="msg-spacer" />);
+      } else {
+        elements.push(
+          <p key={`p-${idx}`} className="msg-p">
+            {parseInline(trimmed)}
+          </p>
+        );
+      }
+    }
+  });
+
+  flushList();
+  return <div className="msg-formatted">{elements}</div>;
+}
+
+interface LiveConversationsProps {
+  onUnauthorized?: () => void;
+}
+
+export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -68,18 +153,42 @@ export function LiveConversations() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  const loadList = useCallback(async () => {
-    const payload = await api<{ conversations: Conversation[] }>('/api/conversations?limit=100');
-    setConversations(payload.conversations);
-    return payload.conversations;
-  }, []);
+  const handleError = useCallback(
+    (err: unknown) => {
+      if (err instanceof ApiError && err.status === 401) {
+        onUnauthorized?.();
+        return;
+      }
+      setError(err instanceof Error ? err.message : 'Operation failed');
+    },
+    [onUnauthorized]
+  );
 
-  const loadThread = useCallback(async (sessionId: string) => {
-    const payload = await api<{ messages: Message[] }>(`/api/conversations/${sessionId}/messages`);
-    setMessages(payload.messages);
-  }, []);
+  const loadList = useCallback(async () => {
+    try {
+      const payload = await api<{ conversations: Conversation[] }>('/api/conversations?limit=100');
+      setConversations(payload.conversations);
+      return payload.conversations;
+    } catch (err) {
+      handleError(err);
+      return [];
+    }
+  }, [handleError]);
+
+  const loadThread = useCallback(
+    async (sessionId: string) => {
+      try {
+        const payload = await api<{ messages: Message[] }>(`/api/conversations/${sessionId}/messages`);
+        setMessages(payload.messages);
+      } catch (err) {
+        handleError(err);
+      }
+    },
+    [handleError]
+  );
 
   const selectedRef = useRef<string | null>(null);
   selectedRef.current = selected;
@@ -90,11 +199,14 @@ export function LiveConversations() {
       try {
         const rows = await loadList();
         if (!active) return;
-        setSelected((current) => current ?? rows.find((row) => row.mode !== 'ai')?.sessionId ?? rows[0]?.sessionId ?? null);
+        if (!selectedRef.current && rows.length > 0) {
+          const first = rows.find((row) => row.mode !== 'ai')?.sessionId ?? rows[0]?.sessionId;
+          if (first) setSelected(first);
+        }
         const open = selectedRef.current;
         if (open) await loadThread(open);
       } catch (err) {
-        if (active) setError(err instanceof Error ? err.message : 'Could not load conversations');
+        if (active) handleError(err);
       }
     };
     void tick();
@@ -103,19 +215,26 @@ export function LiveConversations() {
       active = false;
       clearInterval(timer);
     };
-  }, [loadList, loadThread]);
+  }, [loadList, loadThread, handleError]);
 
   useEffect(() => {
     if (!selected) {
       setMessages([]);
       return;
     }
-    void loadThread(selected).catch(() => undefined);
+    void loadThread(selected);
   }, [selected, loadThread]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Auto-clear notice after 4 seconds
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(''), 4000);
+    return () => clearTimeout(t);
+  }, [notice]);
 
   async function act(path: string, label: string) {
     if (!selected) return;
@@ -128,7 +247,7 @@ export function LiveConversations() {
       await loadList();
       await loadThread(selected);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'The action failed');
+      handleError(err);
     } finally {
       setBusy(false);
     }
@@ -148,12 +267,12 @@ export function LiveConversations() {
       setNotice(
         result.delivered
           ? 'Reply delivered to the customer channel.'
-          : 'Reply stored; channel delivery pending.',
+          : 'Reply stored; channel delivery pending.'
       );
       await loadThread(selected);
       await loadList();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not send the reply');
+      handleError(err);
     } finally {
       setBusy(false);
     }
@@ -186,11 +305,9 @@ export function LiveConversations() {
   return (
     <section className="inbox-card">
       <div className="inbox-header">
-        <div>
+        <div className="inbox-header-title">
           <div className="kicker">TERMINAL // LIVE CONVERSATIONS</div>
-          <h2 style={{ margin: '4px 0 0', fontSize: '1.05rem', fontWeight: 600 }}>
-            Enquiry &amp; Support Inbox
-          </h2>
+          <h2>Enquiry &amp; Support Inbox</h2>
         </div>
         <div className="toolbar">
           {waitingCount > 0 && <span className="pill acc">{waitingCount} WAITING HUMAN</span>}
@@ -200,18 +317,24 @@ export function LiveConversations() {
 
       {error && (
         <div className="banner error" style={{ margin: '12px 16px 0' }}>
-          {error}
+          <span>{error}</span>
+          <button type="button" className="banner-close" onClick={() => setError('')}>
+            ✕
+          </button>
         </div>
       )}
       {notice && (
         <div className="banner success" style={{ margin: '12px 16px 0' }}>
-          {notice}
+          <span>{notice}</span>
+          <button type="button" className="banner-close" onClick={() => setNotice('')}>
+            ✕
+          </button>
         </div>
       )}
 
       <div className="inbox-layout">
         {/* Conversation List Sidebar */}
-        <div className="inbox-sidebar">
+        <div className={`inbox-sidebar ${mobileView === 'chat' ? 'mobile-hidden' : ''}`}>
           <div className="inbox-sidebar-head">
             <input
               className="inbox-search"
@@ -259,7 +382,8 @@ export function LiveConversations() {
                     className={`inbox-item ${isSelected ? 'active' : ''}`}
                     onClick={() => {
                       setSelected(c.sessionId);
-                      void loadThread(c.sessionId).catch(() => undefined);
+                      setMobileView('chat');
+                      void loadThread(c.sessionId);
                     }}
                   >
                     <div className="inbox-item-avatar">
@@ -284,33 +408,50 @@ export function LiveConversations() {
         </div>
 
         {/* Thread Detail Pane */}
-        <div className="chat-pane">
+        <div className={`chat-pane ${mobileView === 'list' ? 'mobile-hidden' : ''}`}>
           {!active ? (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }} className="muted small">
+            <div
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 32,
+              }}
+              className="muted small"
+            >
               Select a thread on the left to inspect transcript and handover status.
             </div>
           ) : (
             <>
               <div className="chat-pane-head">
                 <div className="chat-user-info">
+                  <button
+                    type="button"
+                    className="mobile-back-btn"
+                    onClick={() => setMobileView('list')}
+                    title="Back to all conversations"
+                  >
+                    ← INBOX
+                  </button>
                   <div className="chat-user-avatar">
                     {getInitials(active.displayName || active.externalUserId)}
                   </div>
                   <div className="chat-user-title">
                     <h3>{active.displayName || active.externalUserId}</h3>
-                    <p>
+                    <div className="chat-user-meta">
                       <span className="mono">{active.externalUserId}</span>
                       <ChannelBadge channel={active.channel} />
                       <ModeBadge mode={active.mode} status={active.status} />
-                    </p>
+                    </div>
                   </div>
                 </div>
 
-                <div className="toolbar">
+                <div className="chat-pane-actions">
                   {active.mode === 'ai' ? (
                     <>
                       <button
-                        className="btn secondary"
+                        className="btn secondary btn-sm"
                         type="button"
                         disabled={busy}
                         onClick={() => act('/pause', 'AI paused for this conversation.')}
@@ -318,7 +459,7 @@ export function LiveConversations() {
                         PAUSE AI
                       </button>
                       <button
-                        className="btn primary"
+                        className="btn primary btn-sm"
                         type="button"
                         disabled={busy}
                         onClick={() => act('/takeover', 'Operator takeover active. AI is now silent.')}
@@ -328,7 +469,7 @@ export function LiveConversations() {
                     </>
                   ) : (
                     <button
-                      className="btn success"
+                      className="btn success btn-sm"
                       type="button"
                       disabled={busy}
                       onClick={() => act('/handback', 'Conversation handed back to CosmIQ AI.')}
@@ -350,7 +491,9 @@ export function LiveConversations() {
                     const isAi = m.role === 'assistant';
                     return (
                       <div key={m.id} className={`msg-row ${m.role}`}>
-                        <div className="msg-bubble">{m.content}</div>
+                        <div className="msg-bubble">
+                          <FormattedMessage text={m.content} />
+                        </div>
                         <div className="msg-meta">
                           <span className="msg-role-tag">
                             {isUser ? 'CUSTOMER' : isAi ? 'COSMIQ AI' : 'OPERATOR'}
@@ -372,14 +515,13 @@ export function LiveConversations() {
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="Type an operator reply (Enter to send, Shift+Enter for new line)…"
+                    placeholder="Type an operator reply (Enter to send, Shift+Enter for newline)…"
                     rows={2}
                   />
                   <button
-                    className="btn primary"
+                    className="btn primary chat-send-btn"
                     type="submit"
                     disabled={busy || !draft.trim()}
-                    style={{ height: 48, minWidth: 100 }}
                   >
                     {busy ? 'SENDING…' : 'SEND'}
                   </button>
