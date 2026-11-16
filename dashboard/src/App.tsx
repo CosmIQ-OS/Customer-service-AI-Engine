@@ -322,16 +322,16 @@ export function App() {
           </div>
 
           <div className="stack">
-            <LiveConversations onUnauthorized={() => setAdmin(null)} />
-
+            {/* Operational Action Center: Approvals & Leads in prime focus side-by-side */}
             <div className="split-grid-equal">
-              <section className="card">
+              <Approvals refreshKey={dataVersion} onChanged={load} />
+
+              <section className="card" style={{ display: 'flex', flexDirection: 'column' }}>
                 <div className="panel-title">
                   <strong>Recent Qualified Leads</strong>
                   <button
                     type="button"
-                    className="btn secondary"
-                    style={{ minHeight: 30, padding: '4px 10px', fontSize: '11px' }}
+                    className="btn secondary btn-sm"
                     onClick={() => setActiveTab('intakes')}
                   >
                     VIEW ALL LEADS
@@ -339,11 +339,23 @@ export function App() {
                 </div>
 
                 {intakes.length === 0 ? (
-                  <div className="muted small" style={{ padding: '16px 0' }}>
+                  <div
+                    className="muted small"
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '24px 16px',
+                      textAlign: 'center',
+                      background: 'var(--bg-elevated)',
+                      border: '1px solid var(--border-default)',
+                    }}
+                  >
                     No client intakes recorded yet. Incoming WhatsApp leads populate here automatically.
                   </div>
                 ) : (
-                  <div className="stack" style={{ gap: 10 }}>
+                  <div className="stack" style={{ gap: 10, flex: 1 }}>
                     {intakes.slice(0, 4).map((item, idx) => (
                       <div key={item.id ?? idx} className="list-row" style={{ flexDirection: 'column', gap: 6 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 12 }}>
@@ -362,9 +374,10 @@ export function App() {
                   </div>
                 )}
               </section>
-
-              <Approvals refreshKey={dataVersion} onChanged={load} />
             </div>
+
+            {/* Live Conversations Terminal with fixed-dimension stability */}
+            <LiveConversations onUnauthorized={() => setAdmin(null)} />
           </div>
         </div>
       )}

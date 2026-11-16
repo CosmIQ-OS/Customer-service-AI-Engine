@@ -507,7 +507,13 @@ button, input, select, textarea {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 20px;
-  align-items: start;
+  align-items: stretch;
+}
+
+.split-grid-equal > section.card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 @media (max-width: 980px) {
@@ -904,7 +910,11 @@ tr:hover td {
   border: 1px solid var(--border-default);
   padding: 0;
   min-width: 0;
-  margin-bottom: 20px;
+  height: 600px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin-bottom: 24px;
 }
 
 .inbox-header {
@@ -915,6 +925,7 @@ tr:hover td {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .inbox-header-title h2 {
@@ -925,12 +936,12 @@ tr:hover td {
 }
 
 .inbox-layout {
+  flex: 1 1 0;
+  min-height: 0;
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
-  height: 640px;
-  max-height: calc(100vh - 220px);
-  min-height: 520px;
   background: var(--bg-canvas);
+  overflow: hidden;
 }
 
 .inbox-sidebar {
@@ -940,11 +951,14 @@ tr:hover td {
   background: var(--bg-surface);
   min-width: 0;
   height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .inbox-sidebar-head {
   padding: 12px 14px;
   border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
 }
 
 .inbox-search {
@@ -996,7 +1010,8 @@ tr:hover td {
 }
 
 .inbox-list {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -1095,8 +1110,10 @@ tr:hover td {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   background: var(--bg-canvas);
   min-width: 0;
+  overflow: hidden;
 }
 
 .chat-pane-head {
@@ -1108,6 +1125,7 @@ tr:hover td {
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-default);
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .chat-user-info {
@@ -1190,7 +1208,8 @@ tr:hover td {
 }
 
 .chat-thread-stream {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
   padding: 16px 20px;
   overflow-y: auto;
   display: flex;
@@ -1304,6 +1323,7 @@ tr:hover td {
   padding: 12px 18px;
   background: var(--bg-surface);
   border-top: 1px solid var(--border-default);
+  flex-shrink: 0;
 }
 
 .chat-composer-form {
@@ -1354,21 +1374,29 @@ tr:hover td {
 
 /* Mobile Transformations for Master-Detail Inbox */
 @media (max-width: 767px) {
+  .inbox-card {
+    height: 560px;
+  }
   .inbox-layout {
     display: flex;
     flex-direction: column;
-    height: 560px;
-    max-height: calc(100vh - 180px);
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
   }
   .inbox-sidebar {
     width: 100%;
     border-right: 0;
+    height: 100%;
+    min-height: 0;
   }
   .inbox-sidebar.mobile-hidden {
     display: none !important;
   }
   .chat-pane {
     width: 100%;
+    height: 100%;
+    min-height: 0;
   }
   .chat-pane.mobile-hidden {
     display: none !important;
