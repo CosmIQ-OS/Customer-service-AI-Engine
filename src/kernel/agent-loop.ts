@@ -54,7 +54,12 @@ export class AgentLoop {
         throw new Error('LLM returned an empty response');
       }
 
-      messages.push({ role: 'assistant', content: response.message.content, toolCalls: calls });
+      messages.push({
+        role: 'assistant',
+        content: response.message.content,
+        toolCalls: calls,
+        extraContent: response.message.extraContent,
+      });
       for (const call of calls) {
         const executed = await this.executeTool(call, input);
         toolCalls.push(executed);

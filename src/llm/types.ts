@@ -4,6 +4,7 @@ export interface ToolCall {
   id: string;
   name: string;
   arguments: Record<string, unknown>;
+  extraContent?: Record<string, unknown>;
 }
 
 export interface ChatMessage {
@@ -12,6 +13,7 @@ export interface ChatMessage {
   name?: string;
   toolCallId?: string;
   toolCalls?: ToolCall[];
+  extraContent?: Record<string, unknown>;
 }
 
 export interface ToolDefinition {

@@ -14,6 +14,37 @@ export class OpenAICompatibleProvider implements LLMProvider {
   }
 
   async chat(request: ChatRequest): Promise<ChatReply> {
+    const modelsToTry = [request.model];
+    if (request.model === 'gemini-3.5-flash-lite') {
+      modelsToTry.push('gemini-3.5-flash');
+    }
+
+    let lastError: unknown;
+    for (const model of modelsToTry) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          return await this.executeChat({ ...request, model });
+        } catch (err: any) {
+          lastError = err;
+          const msg = String(err?.message || '');
+          const isRetryable =
+            msg.includes('429') ||
+            msg.includes('503') ||
+            msg.includes('RESOURCE_EXHAUSTED') ||
+            msg.includes('UNAVAILABLE');
+          if (!isRetryable) {
+            throw err;
+          }
+          if (attempt === 0) {
+            await new Promise((r) => setTimeout(r, 1000));
+          }
+        }
+      }
+    }
+    throw lastError;
+  }
+
+  private async executeChat(request: ChatRequest): Promise<ChatReply> {
     const response = await fetch(this.endpoint, {
       method: 'POST',
       headers: {
@@ -50,6 +81,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       id: String(call.id ?? `call_${index}`),
       name: String(call.function?.name ?? ''),
       arguments: parseArguments(call.function?.arguments),
+      extraContent: call.extra_content,
     }));
 
     return {
@@ -57,6 +89,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         role: 'assistant',
         content: typeof message.content === 'string' ? message.content : '',
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        extraContent: message.extra_content,
       },
       usage: {
         promptTokens: Number(payload.usage?.prompt_tokens ?? 0),
@@ -77,15 +110,30 @@ function toOpenAIMessage(message: ChatMessage): Record<string, unknown> {
     };
   }
 
-  return {
+  const result: Record<string, unknown> = {
     role: message.role,
     content: message.content,
-    tool_calls: message.toolCalls?.map((call) => ({
-      id: call.id,
-      type: 'function',
-      function: { name: call.name, arguments: JSON.stringify(call.arguments) },
-    })),
   };
+
+  if (message.extraContent) {
+    result.extra_content = message.extraContent;
+  }
+
+  if (message.toolCalls && message.toolCalls.length > 0) {
+    result.tool_calls = message.toolCalls.map((call) => {
+      const toolCallObj: Record<string, unknown> = {
+        id: call.id,
+        type: 'function',
+        function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+      };
+      if (call.extraContent) {
+        toolCallObj.extra_content = call.extraContent;
+      }
+      return toolCallObj;
+    });
+  }
+
+  return result;
 }
 
 function parseArguments(value: unknown): Record<string, unknown> {

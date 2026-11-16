@@ -8,6 +8,7 @@ data/*.db-wal
 data/.fuse_hidden*
 data/.*.db
 .env
+.env.*
 *.log
 *.exe
 .DS_Store
