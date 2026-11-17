@@ -9,6 +9,7 @@ import { loadConfig } from './config/index.js';
 import { createLLMProvider } from './llm/index.js';
 import { AdminAuth } from './auth/admin-auth.js';
 import { ensureQuoteMarginSetting } from './db/repositories/settings.js';
+import { activePriceTable, publishPriceTable } from './db/repositories/pricing.js';
 
 const config = loadConfig();
 
@@ -178,6 +179,62 @@ function seedCosmiqFaqs(engine: SupportEngine) {
   }
 }
 
+const DEFAULT_PRICE_TABLES: Record<string, Array<{ item_code: string; description: string; unit: string; unit_price_paise: number }>> = {
+  'WhatsApp Agent Services': [
+    { item_code: 'WA-SETUP', description: 'WhatsApp Business API setup, verification & phone onboarding', unit: 'project', unit_price_paise: 1500000 },
+    { item_code: 'WA-AGENT', description: 'Custom AI agent design, prompt tuning & knowledge integration', unit: 'agent', unit_price_paise: 2500000 },
+    { item_code: 'WA-CONSOLE', description: 'Human operator handoff console with live conversation takeover', unit: 'setup', unit_price_paise: 1000000 },
+    { item_code: 'WA-MAINT', description: 'Monthly AI agent telemetry, maintenance and prompt optimization', unit: 'month', unit_price_paise: 500000 },
+  ],
+  'Workflow Automation': [
+    { item_code: 'WF-DISC', description: 'Workflow discovery, systems mapping and architecture', unit: 'project', unit_price_paise: 1000000 },
+    { item_code: 'WF-BUILD', description: 'Multi-system workflow automation build (Slack, Notion, CRM, Email)', unit: 'pipeline', unit_price_paise: 3000000 },
+    { item_code: 'WF-TEST', description: 'End-to-end integration testing and operator training', unit: 'project', unit_price_paise: 1000000 },
+  ],
+  'AI Native Internal System': [
+    { item_code: 'AI-AUDIT', description: 'Internal business AI readiness and data architecture audit', unit: 'audit', unit_price_paise: 1500000 },
+    { item_code: 'AI-KNOWLEDGE', description: 'Company document indexing, embeddings and semantic search', unit: 'system', unit_price_paise: 3500000 },
+    { item_code: 'AI-ASSIST', description: 'Staff AI workspace assistant deployment with internal tool access', unit: 'assistant', unit_price_paise: 2500000 },
+  ],
+  'Company Internal Operations Automation': [
+    { item_code: 'OPS-MAP', description: 'Operations mapping and approval routing architecture', unit: 'project', unit_price_paise: 1200000 },
+    { item_code: 'OPS-BUILD', description: 'Automated recurring reporting and department handoff pipelines', unit: 'pipeline', unit_price_paise: 2800000 },
+  ],
+};
+
+function seedCosmiqPriceTables(engine: SupportEngine) {
+  for (const service of engine.listServices()) {
+    const items = DEFAULT_PRICE_TABLES[service.name];
+    if (!items) continue;
+    const active = activePriceTable(engine.db, service.id);
+    if (!active) {
+      publishPriceTable(engine.db, {
+        serviceId: service.id,
+        sourceFilename: 'cosmiq_default_catalog.csv',
+        uploadedBy: null,
+        items,
+      });
+      console.log(`[pricing] Seeded default price table for "${service.name}" (${items.length} items).`);
+    }
+  }
+
+  // Backfill quotes for any completed intake that doesn't have a quote yet
+  const completedIntakes = engine.listIntakes().filter((intake) => intake.status === 'complete');
+  for (const intake of completedIntakes) {
+    const existing = engine.getLatestQuote(intake.session_id);
+    if (!existing) {
+      engine
+        .buildQuoteForSession(intake.session_id)
+        .then((built) => {
+          console.log(`[pricing] Auto-generated quote ${built.quote.quote_number} for completed intake (${intake.company_name}).`);
+        })
+        .catch((err) => {
+          console.error(`[pricing] Could not generate quote for intake ${intake.id}:`, err instanceof Error ? err.message : err);
+        });
+    }
+  }
+}
+
 function seedIfEmpty(engine: SupportEngine) {
   if (engine.listServices().length === 0) {
     engine.createService({ name: 'Live Chat Support', description: 'Real-time assistance for account and product questions.', category: 'support', status: 'available', availability_note: 'Mon-Fri 09:00-18:00' });
@@ -186,6 +243,7 @@ function seedIfEmpty(engine: SupportEngine) {
   }
   seedCosmiqServices(engine);
   seedCosmiqFaqs(engine);
+  seedCosmiqPriceTables(engine);
   if (engine.listFaqs().length === 0) {
     engine.createFaq({ question: 'What are your support hours?', answer: 'Live chat support is available Monday to Friday, 09:00-18:00 local business time.', tags: ['hours', 'support'] });
     engine.createFaq({ question: 'How can I check service availability?', answer: 'Ask "what services are available?" in chat, or view the Services panel in the dashboard.', tags: ['services', 'availability'] });
