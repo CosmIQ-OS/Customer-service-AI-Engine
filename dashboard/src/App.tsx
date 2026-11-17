@@ -73,8 +73,8 @@ export function App() {
 
   const toggleTheme = () => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     setError('');
     try {
       const [s, r, l, sv, int, apprv] = await Promise.all([
@@ -97,9 +97,11 @@ export function App() {
         setAdmin(null);
         return;
       }
-      setError(e.message || 'Failed to connect to the backend server.');
+      if (showLoading) {
+        setError(e.message || 'Failed to connect to the backend server.');
+      }
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, []);
 
@@ -111,7 +113,12 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (admin) load();
+    if (!admin) return;
+    load(true);
+    const interval = setInterval(() => {
+      load(false);
+    }, 4000);
+    return () => clearInterval(interval);
   }, [admin, load]);
 
   async function logout() {
