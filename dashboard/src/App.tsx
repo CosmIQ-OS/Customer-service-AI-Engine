@@ -465,7 +465,7 @@ export function App() {
 
       {/* 06 TELEMETRY & LOGS */}
       {activeTab === 'logs' && (
-        <div className="split-grid-equal">
+        <div className="split-grid-logs">
           <section className="card">
             <div className="panel-title">
               <strong>Engine Chat Simulator</strong>

@@ -154,7 +154,7 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const streamRef = useRef<HTMLDivElement | null>(null);
 
   const handleError = useCallback(
     (err: unknown) => {
@@ -226,7 +226,9 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
   }, [selected, loadThread]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (streamRef.current) {
+      streamRef.current.scrollTop = streamRef.current.scrollHeight;
+    }
   }, [messages]);
 
   // Auto-clear notice after 4 seconds
@@ -480,7 +482,7 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
                 </div>
               </div>
 
-              <div className="chat-thread-stream">
+              <div className="chat-thread-stream" ref={streamRef}>
                 {messages.length === 0 ? (
                   <div className="muted small" style={{ textAlign: 'center', marginTop: 40 }}>
                     No messages recorded in this session yet.
@@ -505,7 +507,6 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
                     );
                   })
                 )}
-                <div ref={messagesEndRef} />
               </div>
 
               <div className="chat-composer-box">
