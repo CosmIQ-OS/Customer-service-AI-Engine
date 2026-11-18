@@ -15,6 +15,8 @@ A modular AI customer-service engine for chat channels such as **WhatsApp** and 
 
 The default `mock` provider runs locally without credentials. Configure any OpenAI-compatible `/v1/chat/completions` endpoint for live AI responses.
 
+> 📖 **Recent Changes & Team Guide:** See [CHANGES_SUMMARY.md](./CHANGES_SUMMARY.md) for a plain-English breakdown of recent upgrades, WhatsApp tool fixes, and auto-pricing features.
+
 ## Architecture
 
 ```text
