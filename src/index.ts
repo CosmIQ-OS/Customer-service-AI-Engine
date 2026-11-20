@@ -15,10 +15,9 @@ export async function bootstrap() {
   const config = loadConfig();
 
   if (process.env.RENDER && !config.DATABASE_URL) {
-    console.warn(
-      '[db] WARNING: Running on Render without DATABASE_URL. ' +
-        'Local PGlite storage is ephemeral on Render Free Tier and will reset on redeploy/restart. ' +
-        'Set DATABASE_URL to your Neon PostgreSQL connection string for permanent persistence.',
+    throw new Error(
+      'DATABASE_URL is not set on Render. Add your Neon PostgreSQL DATABASE_URL (and DATABASE_URL_UNPOOLED) ' +
+        'in Render Dashboard -> Environment -> Save Changes. Embedded PGlite exceeds Render Free Tier 512MB RAM.',
     );
   }
 
