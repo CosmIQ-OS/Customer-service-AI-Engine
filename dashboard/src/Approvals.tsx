@@ -216,15 +216,7 @@ export function Approvals({ refreshKey = 0, onChanged }: { refreshKey?: number; 
     }
   }
 
-  async function markAllRead() {
-    await api('/api/notifications/read-all', { method: 'POST' }).catch(() => undefined);
-    await load();
-  }
-
-  const unread = data?.counts.unread ?? 0;
-  const windowHours = data?.counts.windowHours ?? 6;
   const pending = data?.pending ?? [];
-  const notifications = data?.notifications ?? [];
 
   return (
     <section className="card">
@@ -235,10 +227,6 @@ export function Approvals({ refreshKey = 0, onChanged }: { refreshKey?: number; 
 
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <span className="pill orange">{pending.length} awaiting approval</span>
-        <span className="pill">{unread} unread alert{unread === 1 ? '' : 's'}</span>
-        <span className="muted small">
-          Reminders repeat every {windowHours} hours until a decision.
-        </span>
       </div>
 
       {error && <div className="banner error" style={{ marginBottom: 12 }}>{error}</div>}
@@ -403,58 +391,6 @@ export function Approvals({ refreshKey = 0, onChanged }: { refreshKey?: number; 
           </p>
         </div>
       )}
-
-      <div style={{ marginTop: 20 }}>
-        <div className="panel-title" style={{ marginBottom: 12 }}>
-          <strong className="kicker" style={{ color: 'var(--text-primary)' }}>Admin Alerts</strong>
-          <button
-            className="btn secondary"
-            style={{ minHeight: 30, padding: '4px 10px', fontSize: '11px' }}
-            type="button"
-            onClick={markAllRead}
-            disabled={unread === 0 || busy}
-          >
-            Mark all read
-          </button>
-        </div>
-        {notifications.length === 0 ? (
-          <div
-            className="muted small"
-            style={{
-              padding: '16px 14px',
-              textAlign: 'center',
-              background: 'var(--bg-elevated)',
-              border: '1px solid var(--border-default)',
-            }}
-          >
-            No approval alerts yet.
-          </div>
-        ) : (
-          <div className="stack" style={{ gap: 8 }}>
-            {notifications.map((notification) => (
-              <div key={notification.id} className="list-row" style={{ flexDirection: 'column', gap: 4 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', width: '100%' }}>
-                  <Pill read={Boolean(notification.read_at)} kind={notification.kind} />
-                  <strong className="small">{notification.title}</strong>
-                  <span className="mono muted" style={{ fontSize: '11px', marginLeft: 'auto' }}>
-                    {fmtTime(notification.created_at)}
-                  </span>
-                </div>
-                <div className="muted small">{notification.body}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </section>
-  );
-}
-
-function Pill({ read, kind }: { read: boolean; kind: string }) {
-  return (
-    <span className={`pill ${read ? '' : 'orange'}`}>
-      {kind === 'quote_realert' ? 'reminder' : 'approval'}
-      {read ? '' : ' · unread'}
-    </span>
   );
 }

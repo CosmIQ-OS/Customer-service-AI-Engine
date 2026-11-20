@@ -5,6 +5,7 @@ import { PriceTables } from './PriceTables';
 import { Quotes } from './Quotes';
 import { Approvals } from './Approvals';
 import { LiveConversations } from './LiveConversations';
+import { NotificationBell } from './NotificationBell';
 
 type AnyRow = Record<string, any>;
 type TabKey = 'overview' | 'inbox' | 'intakes' | 'quotes' | 'services' | 'logs';
@@ -195,6 +196,11 @@ export function App() {
             <span>LIMS &amp; WHATSAPP ENGINE ACTIVE</span>
           </div>
 
+          <NotificationBell
+            refreshKey={dataVersion}
+            onNavigate={(tab) => setActiveTab(tab)}
+          />
+
           <button
             type="button"
             className="theme-btn"
@@ -209,7 +215,7 @@ export function App() {
             <span>{admin.username}</span>
           </div>
 
-          <button className="btn secondary" type="button" onClick={load} disabled={loading}>
+          <button className="btn secondary" type="button" onClick={() => load(true)} disabled={loading}>
             {loading ? 'SYNCING…' : 'REFRESH'}
           </button>
           <button className="btn danger" type="button" onClick={logout}>
@@ -382,9 +388,6 @@ export function App() {
                 )}
               </section>
             </div>
-
-            {/* Live Conversations Terminal with fixed-dimension stability */}
-            <LiveConversations onUnauthorized={() => setAdmin(null)} />
           </div>
         </div>
       )}

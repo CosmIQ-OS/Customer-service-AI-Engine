@@ -18,7 +18,6 @@ import { PricingAgent } from '../pricing/pricing-agent.js';
 import { QuoteBuilder, type BuiltQuote } from '../pricing/quote-builder.js';
 import { ApprovalService, toSqlTimestamp } from '../approvals/approval-service.js';
 import {
-  approvalHoldingMessage,
   approvedQuoteMessage,
   rejectedQuoteMessage,
 } from '../approvals/messages.js';
@@ -269,12 +268,11 @@ export class SupportEngine {
     return { quote: (await quotesRepo.getQuote(this.db, id)) ?? quote, items, message, delivered };
   }
 
-  /** Reminds admins about overdue quotes and sends the customer a price-free holding update. */
+  /** Reminds admins about overdue quotes without interrupting the customer with repeated holding messages. */
   async processDueApprovals(): Promise<{ realerted: number }> {
     const due = await this.approvals.due();
     for (const quote of due) {
-      const { quote: updated } = await this.approvals.reAlert(quote.id);
-      await this.deliverQuoteMessage(updated, approvalHoldingMessage(updated), 'quote.holding_sent');
+      await this.approvals.reAlert(quote.id);
     }
     return { realerted: due.length };
   }

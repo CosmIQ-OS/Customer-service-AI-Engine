@@ -130,7 +130,7 @@ describe('quote approval flow', () => {
     assert.equal((await engine.approvalSummary()).unread, 0);
   });
 
-  it('re-alerts after six hours, keeps the quote pending, and sends a holding update', async () => {
+  it('re-alerts admins after six hours, keeps the quote pending, and does not spam the customer', async () => {
     let now = new Date('2026-11-11T10:00:00.000Z');
     const { engine } = await createEngine({ now: () => now });
     const { quoteId, sessionId } = await startIntake(engine, 'waiting-user');
@@ -150,12 +150,11 @@ describe('quote approval flow', () => {
     assert.equal(after.quote.next_alert_at, '2026-11-11 22:00:05');
     assert.equal((await engine.approvalSummary()).unread, 2);
 
+    // Customers must not be interrupted with repeated "still with our team" follow-ups.
     const holding = (await engine.listMessages(sessionId)).filter(
       (message) => message.role === 'assistant' && /still with our team/i.test(message.content),
     );
-    assert.equal(holding.length, 1);
-    assert.match(holding[0].content, new RegExp(pending.quote.quote_number));
-    assert.equal(holding[0].content.includes('₹'), false);
+    assert.equal(holding.length, 0);
 
     assert.deepEqual(await engine.processDueApprovals(), { realerted: 0 });
     assert.equal((await engine.getQuote(quoteId))!.quote.alert_count, 1);

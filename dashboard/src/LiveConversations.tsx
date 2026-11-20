@@ -154,7 +154,15 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState(false);
+
   const streamRef = useRef<HTMLDivElement | null>(null);
+  const isAtBottomRef = useRef<boolean>(true);
+  const shouldScrollToBottomOnLoadRef = useRef<boolean>(true);
+  const prevThreadIdRef = useRef<string | null>(null);
+  const prevMsgCountRef = useRef<number>(0);
+  const currentThreadIdRef = useRef<string | null>(null);
 
   const handleError = useCallback(
     (err: unknown) => {
@@ -182,7 +190,21 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
     async (sessionId: string) => {
       try {
         const payload = await api<{ messages: Message[] }>(`/api/conversations/${sessionId}/messages`);
-        setMessages(payload.messages);
+        if (currentThreadIdRef.current !== sessionId) {
+          currentThreadIdRef.current = sessionId;
+          setMessages(payload.messages);
+        } else {
+          setMessages((prev) => {
+            if (prev.length === payload.messages.length) {
+              const pLast = prev[prev.length - 1];
+              const nLast = payload.messages[payload.messages.length - 1];
+              if (pLast?.id === nLast?.id && pLast?.content === nLast?.content) {
+                return prev;
+              }
+            }
+            return payload.messages;
+          });
+        }
       } catch (err) {
         handleError(err);
       }
@@ -192,6 +214,33 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
 
   const selectedRef = useRef<string | null>(null);
   selectedRef.current = selected;
+
+  const handleScroll = useCallback(() => {
+    if (!streamRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = streamRef.current;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    const atBottom = distanceFromBottom <= 60;
+    isAtBottomRef.current = atBottom;
+    setShowScrollBottom(distanceFromBottom > 100);
+    if (atBottom) {
+      setHasNewMessagesBelow(false);
+    }
+  }, []);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    if (!streamRef.current) return;
+    if (behavior === 'auto') {
+      streamRef.current.scrollTop = streamRef.current.scrollHeight;
+    } else {
+      streamRef.current.scrollTo({
+        top: streamRef.current.scrollHeight,
+        behavior,
+      });
+    }
+    isAtBottomRef.current = true;
+    setShowScrollBottom(false);
+    setHasNewMessagesBelow(false);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -220,16 +269,55 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
   useEffect(() => {
     if (!selected) {
       setMessages([]);
+      currentThreadIdRef.current = null;
       return;
     }
+    shouldScrollToBottomOnLoadRef.current = true;
+    isAtBottomRef.current = true;
+    setShowScrollBottom(false);
+    setHasNewMessagesBelow(false);
     void loadThread(selected);
   }, [selected, loadThread]);
 
   useEffect(() => {
-    if (streamRef.current) {
-      streamRef.current.scrollTop = streamRef.current.scrollHeight;
+    if (!streamRef.current) return;
+
+    const threadChanged = selected !== prevThreadIdRef.current;
+    const newMessagesArrived = messages.length > prevMsgCountRef.current;
+
+    prevThreadIdRef.current = selected;
+    prevMsgCountRef.current = messages.length;
+
+    if (threadChanged || shouldScrollToBottomOnLoadRef.current) {
+      shouldScrollToBottomOnLoadRef.current = false;
+      isAtBottomRef.current = true;
+      setShowScrollBottom(false);
+      setHasNewMessagesBelow(false);
+      requestAnimationFrame(() => {
+        if (streamRef.current) {
+          streamRef.current.scrollTop = streamRef.current.scrollHeight;
+        }
+      });
+      return;
     }
-  }, [messages]);
+
+    if (newMessagesArrived) {
+      if (isAtBottomRef.current) {
+        requestAnimationFrame(() => {
+          if (streamRef.current) {
+            streamRef.current.scrollTo({
+              top: streamRef.current.scrollHeight,
+              behavior: 'smooth',
+            });
+          }
+        });
+      } else {
+        // User is scrolled up reading earlier messages; do not hijack their scroll position
+        setHasNewMessagesBelow(true);
+        setShowScrollBottom(true);
+      }
+    }
+  }, [messages, selected]);
 
   // Auto-clear notice after 4 seconds
   useEffect(() => {
@@ -258,6 +346,10 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
   async function sendReply(event?: React.FormEvent) {
     if (event) event.preventDefault();
     if (!selected || !draft.trim()) return;
+    shouldScrollToBottomOnLoadRef.current = true;
+    isAtBottomRef.current = true;
+    setShowScrollBottom(false);
+    setHasNewMessagesBelow(false);
     setBusy(true);
     setError('');
     try {
@@ -273,6 +365,11 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
       );
       await loadThread(selected);
       await loadList();
+      requestAnimationFrame(() => {
+        if (streamRef.current) {
+          streamRef.current.scrollTop = streamRef.current.scrollHeight;
+        }
+      });
     } catch (err) {
       handleError(err);
     } finally {
@@ -482,30 +579,46 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
                 </div>
               </div>
 
-              <div className="chat-thread-stream" ref={streamRef}>
-                {messages.length === 0 ? (
-                  <div className="muted small" style={{ textAlign: 'center', marginTop: 40 }}>
-                    No messages recorded in this session yet.
+              <div className="chat-stream-wrapper">
+                <div className="chat-thread-stream" ref={streamRef} onScroll={handleScroll}>
+                  {messages.length === 0 ? (
+                    <div className="muted small" style={{ textAlign: 'center', marginTop: 40 }}>
+                      No messages recorded in this session yet.
+                    </div>
+                  ) : (
+                    messages.map((m) => {
+                      const isUser = m.role === 'user';
+                      const isAi = m.role === 'assistant';
+                      return (
+                        <div key={m.id} className={`msg-row ${m.role}`}>
+                          <div className="msg-bubble">
+                            <FormattedMessage text={m.content} />
+                          </div>
+                          <div className="msg-meta">
+                            <span className="msg-role-tag">
+                              {isUser ? 'CUSTOMER' : isAi ? 'COSMIQ AI' : 'OPERATOR'}
+                            </span>
+                            <span>//</span>
+                            <span>{fmtTime(m.created_at)}</span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {showScrollBottom && (
+                  <div className="chat-scroll-pill-wrap">
+                    <button
+                      type="button"
+                      className={`chat-scroll-pill ${hasNewMessagesBelow ? 'has-new' : ''}`}
+                      onClick={() => scrollToBottom('smooth')}
+                      title="Scroll to latest messages"
+                    >
+                      <span className="scroll-pill-icon">↓</span>
+                      <span>{hasNewMessagesBelow ? 'New messages' : 'Latest messages'}</span>
+                    </button>
                   </div>
-                ) : (
-                  messages.map((m) => {
-                    const isUser = m.role === 'user';
-                    const isAi = m.role === 'assistant';
-                    return (
-                      <div key={m.id} className={`msg-row ${m.role}`}>
-                        <div className="msg-bubble">
-                          <FormattedMessage text={m.content} />
-                        </div>
-                        <div className="msg-meta">
-                          <span className="msg-role-tag">
-                            {isUser ? 'CUSTOMER' : isAi ? 'COSMIQ AI' : 'OPERATOR'}
-                          </span>
-                          <span>//</span>
-                          <span>{fmtTime(m.created_at)}</span>
-                        </div>
-                      </div>
-                    );
-                  })
                 )}
               </div>
 
