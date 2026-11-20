@@ -256,7 +256,7 @@ async function seedCosmiqPriceTables(engine: SupportEngine) {
           console.log(`[pricing] Auto-generated quote ${built.quote.quote_number} for completed intake (${intake.company_name}).`);
         })
         .catch((err) => {
-          console.error(`[pricing] Could not generate quote for intake ${intake.id}:`, err instanceof Error ? err.message : err);
+          console.error('[pricing] Could not generate quote for intake %s:', intake.id, err instanceof Error ? err.message : err);
         });
     }
   }

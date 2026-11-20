@@ -108,6 +108,7 @@ export function App() {
   const [intakeDateFilter, setIntakeDateFilter] = useState<IntakeDateFilter>('all');
   const [intakeStatusFilter, setIntakeStatusFilter] = useState<IntakeStatusFilter>('all');
   const [updatingLeadId, setUpdatingLeadId] = useState<number | null>(null);
+  const [deletingLeadId, setDeletingLeadId] = useState<number | null>(null);
   const [logFilter, setLogFilter] = useState<'all' | 'inbound' | 'outbound' | 'system'>('all');
 
   const [showServiceModal, setShowServiceModal] = useState(false);
@@ -158,6 +159,22 @@ export function App() {
       setError(err instanceof Error ? err.message : 'Could not update lead status');
     } finally {
       setUpdatingLeadId(null);
+    }
+  }
+
+  async function deleteLead(lead: AnyRow) {
+    const name = lead.company_name || lead.external_user_id || `Lead #${lead.id}`;
+    if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    setDeletingLeadId(lead.id);
+    setError('');
+    try {
+      await api(`/api/intakes/${lead.id}`, { method: 'DELETE' });
+      setIntakes((prev) => prev.filter((row) => row.id !== lead.id));
+      load(false);
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : 'Could not delete lead');
+    } finally {
+      setDeletingLeadId(null);
     }
   }
 
@@ -672,7 +689,7 @@ export function App() {
           </div>
 
           <Table
-            cols={['Channel', 'Client ID', 'Company', 'Size', 'Tools Stack', 'Requested Service', 'Lang', 'Status', 'Updated']}
+            cols={['Channel', 'Client ID', 'Company', 'Size', 'Tools Stack', 'Requested Service', 'Lang', 'Status', '', 'Updated']}
             rows={filteredIntakes}
             render={(r) => {
               const currentStatus = normalizeLeadStatus(r.status);
@@ -699,6 +716,19 @@ export function App() {
                     </option>
                   ))}
                 </select>,
+                <button
+                  type="button"
+                  className="btn danger btn-sm"
+                  aria-label={`Delete lead ${r.company_name || r.external_user_id}`}
+                  title="Delete lead"
+                  disabled={deletingLeadId === r.id}
+                  onClick={() => deleteLead(r)}
+                  style={{ minHeight: 28, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m5 4v6m4-6v6" />
+                  </svg>
+                </button>,
                 <span className="mono muted">{fmtTime(r.updated_at)}</span>,
               ];
             }}

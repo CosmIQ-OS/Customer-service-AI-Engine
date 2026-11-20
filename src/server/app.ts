@@ -313,6 +313,13 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
     if (!updated) return res.status(404).json({ error: 'Intake not found' });
     res.json(updated);
   }));
+  app.delete('/api/intakes/:id', asyncHandler(async (req, res) => {
+    const id = parseServiceId(req.params.id);
+    if (id === null) return res.status(400).json({ error: 'Invalid intake id' });
+    const deleted = await engine.deleteIntake(id, res.locals.admin?.id ?? null);
+    if (!deleted) return res.status(404).json({ error: 'Intake not found' });
+    res.json({ deleted: true, id: deleted.id });
+  }));
 
   app.post('/api/chat/simulate', asyncHandler(async (req, res) => {
     const parsed = z.object({

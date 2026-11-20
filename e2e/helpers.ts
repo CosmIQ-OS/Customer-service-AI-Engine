@@ -878,5 +878,7 @@ export function buildInrAmountRegex(paise: number): RegExp {
   const escaped = [formattedDec, formattedInt, plainInt].map((s) =>
     s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
   );
+  // Derived only from a numeric amount, with every regex metacharacter escaped above.
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
   return new RegExp(`(?:₹|INR)\\s*(?:${escaped.join('|')})(?:\\.00)?`, 'i');
 }

@@ -168,6 +168,25 @@ describe('admin API protection', () => {
       body: JSON.stringify({ status: 'bogus_status' }),
     });
     assert.equal(badStatus.status, 400);
+
+    const unauthorizedDelete = await fetch(`${harness.base}/api/intakes/${row!.id}`, { method: 'DELETE' });
+    assert.equal(unauthorizedDelete.status, 401);
+    const invalidDelete = await fetch(`${harness.base}/api/intakes/not-a-number`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+    assert.equal(invalidDelete.status, 400);
+    const deleteRes = await fetch(`${harness.base}/api/intakes/${row!.id}`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+    assert.equal(deleteRes.status, 200);
+    assert.deepEqual(await deleteRes.json(), { deleted: true, id: row!.id });
+    const missingDelete = await fetch(`${harness.base}/api/intakes/${row!.id}`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+    assert.equal(missingDelete.status, 404);
   });
 
   it('lets an admin take over a conversation, reply, delete sent messages, and hand it back', async () => {

@@ -184,6 +184,14 @@ export async function updateIntakeStatus(
   return row ? map(row) : undefined;
 }
 
+export async function deleteIntake(db: DBExecutor, id: number): Promise<IntakeRecord | undefined> {
+  const row = await db.queryOne<IntakeQueryRow>(
+    'DELETE FROM service_intakes WHERE id = $1 RETURNING *',
+    [id],
+  );
+  return row ? map(row) : undefined;
+}
+
 export async function advanceIntakeToQuoted(
   db: DBExecutor,
   opts: { sessionId?: string | null; intakeId?: number | null },

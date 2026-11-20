@@ -111,6 +111,21 @@ export class SupportEngine {
     }
     return updated;
   }
+  async deleteIntake(id: number, adminId: number | null = null) {
+    const deleted = await intakeRepo.deleteIntake(this.db, id);
+    if (deleted) {
+      await logsRepo.createLog(this.db, {
+        channel: deleted.channel,
+        external_user_id: deleted.external_user_id,
+        session_id: deleted.session_id,
+        direction: 'system',
+        event: 'intake.deleted',
+        message: `Lead #${deleted.id} (${deleted.company_name || deleted.external_user_id}) deleted.`,
+        payload: { intakeId: deleted.id, adminId },
+      });
+    }
+    return deleted;
+  }
   listQuotes(limit?: number) { return quotesRepo.listQuotes(this.db, limit); }
   async getQuote(id: number) {
     const quote = await quotesRepo.getQuote(this.db, id);
