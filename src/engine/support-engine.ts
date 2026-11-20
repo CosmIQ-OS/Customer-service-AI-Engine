@@ -80,8 +80,10 @@ export class SupportEngine {
   }
 
   listServices() { return servicesRepo.listServices(this.db); }
+  getService(id: number) { return servicesRepo.getServiceById(this.db, id); }
   createService(input: Parameters<typeof servicesRepo.createService>[1]) { return servicesRepo.createService(this.db, input); }
   updateService(id: number, input: Parameters<typeof servicesRepo.updateService>[2]) { return servicesRepo.updateService(this.db, id, input); }
+  deleteService(id: number) { return servicesRepo.deleteService(this.db, id); }
   listFaqs() { return faqsRepo.listFaqs(this.db); }
   createFaq(input: Parameters<typeof faqsRepo.createFaq>[1]) { return faqsRepo.createFaq(this.db, input); }
   updateFaq(id: number, input: Parameters<typeof faqsRepo.updateFaq>[2]) { return faqsRepo.updateFaq(this.db, id, input); }
@@ -101,6 +103,100 @@ export class SupportEngine {
   getQuoteMarginPercent() { return settingsRepo.getQuoteMarginPercent(this.db); }
   setQuoteMarginPercent(value: number, adminId: number | null) {
     return settingsRepo.setQuoteMarginPercent(this.db, value, adminId);
+  }
+  getSettings() { return settingsRepo.getAllSettings(this.db); }
+  getCompanySizeMultipliers() { return settingsRepo.getCompanySizeMultipliers(this.db); }
+  setCompanySizeMultipliers(value: settingsRepo.CompanySizeMultipliers, adminId: number | null) {
+    return settingsRepo.setCompanySizeMultipliers(this.db, value, adminId);
+  }
+  getDefaultTermsAndConditions() { return settingsRepo.getDefaultTermsAndConditions(this.db); }
+  setDefaultTermsAndConditions(value: string, adminId: number | null) {
+    return settingsRepo.setDefaultTermsAndConditions(this.db, value, adminId);
+  }
+  updateSettings(patch: Parameters<typeof settingsRepo.updateSettings>[1], adminId: number | null) {
+    return settingsRepo.updateSettings(this.db, patch, adminId);
+  }
+  createProposal(input: quotesRepo.ProposalInput) {
+    return quotesRepo.createProposal(this.db, input);
+  }
+
+  async recordWebsiteLead(input: {
+    company_name: string;
+    company_size?: string;
+    contact_person?: string;
+    email?: string;
+    phone?: string;
+    current_tools?: string;
+    service_name?: string;
+    service_id?: number | null;
+    notes?: string;
+  }) {
+    const sessionId = `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const externalUserId = input.phone || input.email || input.company_name;
+
+    return this.db.transaction(async (tx) => {
+      await sessionsRepo.upsertSession(tx, {
+        id: sessionId,
+        channel: 'website',
+        external_user_id: externalUserId,
+        context: {
+          company_name: input.company_name,
+          company_size: input.company_size ?? '',
+          contact_person: input.contact_person ?? '',
+          email: input.email ?? '',
+          phone: input.phone ?? '',
+          current_tools: input.current_tools ?? '',
+          notes: input.notes ?? '',
+        },
+        last_intent: 'website_lead',
+      });
+
+      const summaryText = [
+        `🌐 Inbound Website Lead from ${input.company_name}`,
+        input.contact_person ? `Contact: ${input.contact_person}` : '',
+        input.email ? `Email: ${input.email}` : '',
+        input.phone ? `Phone: ${input.phone}` : '',
+        input.company_size ? `Company Size: ${input.company_size}` : '',
+        input.service_name ? `Requested Service: ${input.service_name}` : '',
+        input.current_tools ? `Current Tools: ${input.current_tools}` : '',
+        input.notes ? `Notes: ${input.notes}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      await messagesRepo.appendMessage(tx, {
+        session_id: sessionId,
+        channel: 'website',
+        external_user_id: externalUserId,
+        role: 'user',
+        content: summaryText,
+      });
+
+      const intake = await intakeRepo.upsertIntake(tx, {
+        sessionId,
+        channel: 'website',
+        externalUserId,
+        tenantId: 'default',
+        patch: {
+          company_name: input.company_name,
+          company_size: input.company_size ?? '',
+          current_tools: input.current_tools ?? '',
+          service_id: input.service_id ?? null,
+          service_name: input.service_name ?? '',
+          language: 'en',
+        },
+      });
+      await intakeRepo.markIntakeComplete(tx, sessionId);
+
+      await notificationsRepo.createNotification(tx, {
+        kind: 'website_lead',
+        session_id: sessionId,
+        title: `New Website Lead: ${input.company_name}`,
+        body: `${input.contact_person || 'Website visitor'} submitted lead inquiry for ${input.service_name || 'Services'}.`,
+      });
+
+      return { sessionId, intakeId: intake.id };
+    });
   }
 
   /** Builds a quote with the pricing agent and queues it for admin approval. */

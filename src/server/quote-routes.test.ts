@@ -5,6 +5,12 @@ import { after, before, describe, it } from 'node:test';
 import { AdminAuth } from '../auth/admin-auth.js';
 import { openDatabase, type DB } from '../db/database.js';
 import { publishPriceTable } from '../db/repositories/pricing.js';
+import {
+  COMPANY_SIZE_MULTIPLIERS_KEY,
+  DEFAULT_COMPANY_SIZE_MULTIPLIERS,
+  DEFAULT_TERMS_AND_CONDITIONS,
+  DEFAULT_TERMS_KEY,
+} from '../db/repositories/settings.js';
 import { SupportEngine } from '../engine/support-engine.js';
 import { MockLLMProvider } from '../llm/mock.js';
 import { createApp } from './app.js';
@@ -76,16 +82,21 @@ describe('quote API', () => {
 
   it('requires an admin session for settings and quotes', async () => {
     assert.equal((await fetch(`${base}/api/settings`)).status, 401);
+    assert.equal((await fetch(`${base}/api/settings/multipliers`, { method: 'PUT' })).status, 401);
+    assert.equal((await fetch(`${base}/api/settings/terms`, { method: 'PUT' })).status, 401);
+    assert.equal((await fetch(`${base}/api/settings`, { method: 'PUT' })).status, 401);
     assert.equal((await fetch(`${base}/api/quotes`)).status, 401);
   });
 
-  it('returns the editable margin range', async () => {
+  it('returns the editable margin range, multipliers, and default terms', async () => {
     const res = await fetch(`${base}/api/settings`, { headers: { cookie } });
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), {
       quoteMarginPercent: 30,
       minMarginPercent: 30,
       maxMarginPercent: 35,
+      companySizeMultipliers: DEFAULT_COMPANY_SIZE_MULTIPLIERS,
+      defaultTermsAndConditions: DEFAULT_TERMS_AND_CONDITIONS,
     });
   });
 
@@ -96,7 +107,14 @@ describe('quote API', () => {
       body: JSON.stringify({ marginPercent: 32.5 }),
     });
     assert.equal(saved.status, 200);
-    assert.equal(((await saved.json()) as { quoteMarginPercent: number }).quoteMarginPercent, 32.5);
+    const savedBody = (await saved.json()) as {
+      quoteMarginPercent: number;
+      companySizeMultipliers: Record<string, number>;
+      defaultTermsAndConditions: string;
+    };
+    assert.equal(savedBody.quoteMarginPercent, 32.5);
+    assert.deepEqual(savedBody.companySizeMultipliers, DEFAULT_COMPANY_SIZE_MULTIPLIERS);
+    assert.equal(savedBody.defaultTermsAndConditions, DEFAULT_TERMS_AND_CONDITIONS);
 
     const rejected = await fetch(`${base}/api/settings/quote-margin`, {
       method: 'PUT',
@@ -107,6 +125,138 @@ describe('quote API', () => {
 
     const current = await fetch(`${base}/api/settings`, { headers: { cookie } });
     assert.equal(((await current.json()) as { quoteMarginPercent: number }).quoteMarginPercent, 32.5);
+  });
+
+  it('updates and validates company size multipliers with updated_by audit', async () => {
+    const nextMultipliers = { '0-5': 1.0, '5-10': 1.6, '10-20': 2.2, '20+': 3.25 };
+    const saved = await fetch(`${base}/api/settings/multipliers`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ companySizeMultipliers: nextMultipliers }),
+    });
+    assert.equal(saved.status, 200);
+    const savedBody = (await saved.json()) as { companySizeMultipliers: Record<string, number> };
+    assert.deepEqual(savedBody.companySizeMultipliers, nextMultipliers);
+
+    const auditRow = await db.queryOne<{ updated_by: number | null }>(
+      'SELECT updated_by FROM app_settings WHERE key = $1',
+      [COMPANY_SIZE_MULTIPLIERS_KEY],
+    );
+    assert.equal(Number(auditRow?.updated_by), 1);
+
+    for (const badPayload of [
+      { companySizeMultipliers: { '0-5': 0, '5-10': 1.5, '10-20': 2.0, '20+': 3.0 } },
+      { companySizeMultipliers: { '0-5': -1, '5-10': 1.5, '10-20': 2.0, '20+': 3.0 } },
+      { companySizeMultipliers: { '0-5': '1.0', '5-10': 1.5, '10-20': 2.0, '20+': 3.0 } },
+      { companySizeMultipliers: { '0-5': 1.2 } },
+    ]) {
+      const bad = await fetch(`${base}/api/settings/multipliers`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', cookie },
+        body: JSON.stringify(badPayload),
+      });
+      assert.equal(bad.status, 400);
+    }
+
+    const after = await (await fetch(`${base}/api/settings`, { headers: { cookie } })).json() as {
+      companySizeMultipliers: Record<string, number>;
+    };
+    assert.deepEqual(after.companySizeMultipliers, nextMultipliers);
+  });
+
+  it('updates and clears default Terms & Conditions with updated_by audit', async () => {
+    const customTerms = 'Custom Proposal Terms\n1. Valid 30 days.';
+    const saved = await fetch(`${base}/api/settings/terms`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ defaultTermsAndConditions: customTerms }),
+    });
+    assert.equal(saved.status, 200);
+    assert.equal(((await saved.json()) as { defaultTermsAndConditions: string }).defaultTermsAndConditions, customTerms);
+
+    const auditRow = await db.queryOne<{ updated_by: number | null }>(
+      'SELECT updated_by FROM app_settings WHERE key = $1',
+      [DEFAULT_TERMS_KEY],
+    );
+    assert.equal(Number(auditRow?.updated_by), 1);
+
+    // Clearing to "" must succeed and persist "" across GET /api/settings
+    const cleared = await fetch(`${base}/api/settings/terms`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ defaultTermsAndConditions: '' }),
+    });
+    assert.equal(cleared.status, 200);
+    assert.equal(((await cleared.json()) as { defaultTermsAndConditions: string }).defaultTermsAndConditions, '');
+
+    const current = await (await fetch(`${base}/api/settings`, { headers: { cookie } })).json() as {
+      defaultTermsAndConditions: string;
+    };
+    assert.equal(current.defaultTermsAndConditions, '');
+
+    const nonString = await fetch(`${base}/api/settings/terms`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ defaultTermsAndConditions: 123 }),
+    });
+    assert.equal(nonString.status, 400);
+
+    const missing = await fetch(`${base}/api/settings/terms`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({}),
+    });
+    assert.equal(missing.status, 400);
+  });
+
+  it('supports combined PUT /api/settings atomically and rejects empty or partially invalid payloads', async () => {
+    const empty = await fetch(`${base}/api/settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({}),
+    });
+    assert.equal(empty.status, 400);
+
+    // Mixed valid margin + invalid multiplier must fail atomically without updating margin (currently 32.5)
+    const mixed = await fetch(`${base}/api/settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({
+        quoteMarginPercent: 35,
+        companySizeMultipliers: { '0-5': 1.0, '5-10': -2, '10-20': 2.0, '20+': 3.0 },
+      }),
+    });
+    assert.equal(mixed.status, 400);
+    const afterMixed = await (await fetch(`${base}/api/settings`, { headers: { cookie } })).json() as {
+      quoteMarginPercent: number;
+    };
+    assert.equal(afterMixed.quoteMarginPercent, 32.5);
+
+    const combined = await fetch(`${base}/api/settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({
+        quoteMarginPercent: 34,
+        companySizeMultipliers: DEFAULT_COMPANY_SIZE_MULTIPLIERS,
+        defaultTermsAndConditions: DEFAULT_TERMS_AND_CONDITIONS,
+      }),
+    });
+    assert.equal(combined.status, 200);
+    const combinedBody = await combined.json() as {
+      quoteMarginPercent: number;
+      companySizeMultipliers: Record<string, number>;
+      defaultTermsAndConditions: string;
+    };
+    assert.equal(combinedBody.quoteMarginPercent, 34);
+    assert.deepEqual(combinedBody.companySizeMultipliers, DEFAULT_COMPANY_SIZE_MULTIPLIERS);
+    assert.equal(combinedBody.defaultTermsAndConditions, DEFAULT_TERMS_AND_CONDITIONS);
+
+    // Reset margin back to 32.5 for downstream quote tests in this file
+    await fetch(`${base}/api/settings/quote-margin`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ marginPercent: 32.5 }),
+    });
   });
 
   it('builds a quote when an intake completes and exposes it to admins', async () => {
@@ -264,5 +414,53 @@ describe('quote API', () => {
     const detailBody = await detail.json() as { quote: { decision_note: string; status: string } };
     assert.equal(detailBody.quote.status, 'rejected');
     assert.equal(detailBody.quote.decision_note, 'Budget too small for this scope.');
+  });
+
+  it('creates a custom multi-service proposal and downloads a valid PDF', async () => {
+    const res = await fetch(`${base}/api/proposals`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({
+        clientName: 'Alpha Ventures Ltd',
+        clientEmail: 'contact@alphaventures.com',
+        companySize: '10-20',
+        channel: 'website',
+        termsAndConditions: '1. Standard 14-day validity.\n2. 50% advance payment.',
+        notes: 'Includes expedited setup and WhatsApp automation.',
+        items: [
+          {
+            description: 'WhatsApp Agent Services',
+            quantity: 1,
+            unit: 'instance',
+            unitPricePaise: 5500000,
+            lineTotalPaise: 5500000,
+          },
+          {
+            description: 'Workflow Automation',
+            quantity: 2,
+            unit: 'workflow',
+            unitPricePaise: 2500000,
+            lineTotalPaise: 5000000,
+          },
+        ],
+      }),
+    });
+
+    assert.equal(res.status, 201);
+    const proposal = (await res.json()) as any;
+    assert.ok(proposal.id);
+    assert.ok(proposal.quote_number.startsWith('P-'));
+    assert.equal(proposal.client_name, 'Alpha Ventures Ltd');
+    assert.equal(proposal.total_paise, 10500000);
+
+    // Test PDF download
+    const pdfRes = await fetch(`${base}/api/quotes/${proposal.id}/pdf`, {
+      headers: { cookie },
+    });
+    assert.equal(pdfRes.status, 200);
+    assert.equal(pdfRes.headers.get('content-type'), 'application/pdf');
+    const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+    assert.ok(pdfBuffer.length > 1000);
+    assert.equal(pdfBuffer.subarray(0, 5).toString('ascii'), '%PDF-');
   });
 });

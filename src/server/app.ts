@@ -8,6 +8,7 @@ import type { AdminAuth } from '../auth/admin-auth.js';
 import { createAuthRouter } from '../auth/routes.js';
 import { requireAdmin, requireWebhookSecret } from '../auth/http.js';
 import { asyncHandler } from './async-handler.js';
+import { createRateLimiter } from './rate-limiter.js';
 import { createPricingRouter } from './pricing-routes.js';
 import { createQuoteRouter } from './quote-routes.js';
 import { createConversationRouter } from './conversation-routes.js';
@@ -24,12 +25,35 @@ export interface AppOptions {
   invoices?: InvoiceService;
 }
 
-const serviceSchema = z.object({
-  name: z.string().min(1),
+const MAX_PG_INT4 = 2_147_483_647;
+
+function parseServiceId(raw: string): number | null {
+  const id = Number(raw);
+  if (!Number.isInteger(id) || id <= 0 || id > MAX_PG_INT4) return null;
+  return id;
+}
+
+const serviceStatusSchema = z.enum(['available', 'unavailable', 'limited', 'maintenance']);
+
+const createServiceSchema = z.object({
+  name: z.string().trim().min(1),
   description: z.string().default(''),
   category: z.string().default('general'),
-  status: z.enum(['available', 'unavailable', 'limited', 'maintenance']),
+  status: serviceStatusSchema.default('available'),
   availability_note: z.string().default(''),
+  base_price_paise: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+  basePriceInr: z.number().finite().min(0).max(Math.floor(Number.MAX_SAFE_INTEGER / 100)).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const updateServiceSchema = z.object({
+  name: z.string().trim().min(1).optional(),
+  description: z.string().optional(),
+  category: z.string().optional(),
+  status: serviceStatusSchema.optional(),
+  availability_note: z.string().optional(),
+  base_price_paise: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+  basePriceInr: z.number().finite().min(0).max(Math.floor(Number.MAX_SAFE_INTEGER / 100)).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -105,6 +129,61 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
     }
   });
 
+  const leadRateLimiter = createRateLimiter({
+    windowMs: 60 * 1000,
+    max: 10,
+    message: 'Too many lead submissions from this network. Please wait a moment and try again.',
+  });
+
+  const websiteLeadSchema = z
+    .object({
+      company_name: z.string().trim().min(1, 'Company name is required').max(255),
+      company_size: z.string().trim().max(50).optional().default(''),
+      contact_person: z.string().trim().max(255).optional().default(''),
+      email: z.string().trim().max(255).optional().default(''),
+      phone: z.string().trim().max(50).optional().default(''),
+      current_tools: z.string().trim().max(500).optional().default(''),
+      service_name: z.string().trim().max(255).optional().default(''),
+      service_id: z.number().int().positive().nullable().optional(),
+      notes: z.string().trim().max(2000).optional().default(''),
+    })
+    .refine(
+      (data) => Boolean(data.email || data.phone || data.contact_person),
+      { message: 'Please provide at least a contact person, email, or phone number.' },
+    );
+
+  const normalizeLeadPayload = (raw: Record<string, unknown> | null | undefined) => {
+    if (!raw || typeof raw !== 'object') return {};
+    return {
+      company_name: raw.company_name ?? raw.companyName ?? raw.company ?? '',
+      company_size: raw.company_size ?? raw.companySize ?? raw.size ?? '',
+      contact_person: raw.contact_person ?? raw.contactPerson ?? raw.name ?? raw.fullName ?? '',
+      email: raw.email ?? '',
+      phone: raw.phone ?? raw.phoneNumber ?? raw.whatsapp ?? '',
+      current_tools: raw.current_tools ?? raw.currentTools ?? raw.tools ?? '',
+      service_name: raw.service_name ?? raw.serviceName ?? raw.serviceNeeded ?? '',
+      service_id: raw.service_id ?? raw.serviceId ?? null,
+      notes: raw.notes ?? raw.message ?? raw.requirements ?? '',
+    };
+  };
+
+  const handleWebsiteLead = asyncHandler(async (req: Request, res: Response) => {
+    const normalized = normalizeLeadPayload(req.body);
+    const parsed = websiteLeadSchema.safeParse(normalized);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    const result = await engine.recordWebsiteLead(parsed.data);
+    res.status(201).json({
+      ok: true,
+      message: 'Thank you! Your inquiry has been received. Our team will contact you shortly.',
+      ...result,
+    });
+  });
+
+  app.post('/api/leads', leadRateLimiter, handleWebsiteLead);
+  app.post('/api/intake/website', leadRateLimiter, handleWebsiteLead);
+
   app.use('/api', requireAdmin(options.auth));
   app.use('/api', createPricingRouter(engine.db));
   app.use('/api', createQuoteRouter(engine));
@@ -140,17 +219,49 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
     res.json(await engine.listServices());
   }));
   app.post('/api/services', asyncHandler(async (req, res) => {
-    const parsed = serviceSchema.safeParse(req.body);
+    const parsed = createServiceSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-    res.status(201).json(await engine.createService(parsed.data));
+    const { basePriceInr, base_price_paise, ...rest } = parsed.data;
+    const resolvedPrice =
+      base_price_paise !== undefined
+        ? base_price_paise
+        : basePriceInr !== undefined
+          ? Math.round(basePriceInr * 100)
+          : 0;
+    res.status(201).json(await engine.createService({ ...rest, base_price_paise: resolvedPrice }));
   }));
   app.patch('/api/services/:id', asyncHandler(async (req, res) => {
-    const id = Number(req.params.id);
-    const parsed = serviceSchema.partial().safeParse(req.body);
+    const id = parseServiceId(req.params.id);
+    if (id === null) return res.status(400).json({ error: 'Invalid service id' });
+    const parsed = updateServiceSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-    const row = await engine.updateService(id, parsed.data);
+    const { basePriceInr, base_price_paise, ...rest } = parsed.data;
+    const resolvedPrice =
+      base_price_paise !== undefined
+        ? base_price_paise
+        : basePriceInr !== undefined
+          ? Math.round(basePriceInr * 100)
+          : undefined;
+    const row = await engine.updateService(
+      id,
+      resolvedPrice !== undefined ? { ...rest, base_price_paise: resolvedPrice } : rest,
+    );
     if (!row) return res.status(404).json({ error: 'Not found' });
     res.json(row);
+  }));
+  app.delete('/api/services/:id', asyncHandler(async (req, res) => {
+    const id = parseServiceId(req.params.id);
+    if (id === null) return res.status(400).json({ error: 'Invalid service id' });
+    const result = await engine.deleteService(id);
+    if (result.status === 'not_found') return res.status(404).json({ error: 'Service not found' });
+    if (result.status === 'in_use') {
+      return res.status(409).json({
+        error: 'Cannot delete service referenced by existing proposals',
+        code: 'SERVICE_IN_USE',
+        quoteCount: result.quoteCount,
+      });
+    }
+    res.json({ deleted: true, id: result.id });
   }));
 
   app.get('/api/faqs', asyncHandler(async (_req, res) => {

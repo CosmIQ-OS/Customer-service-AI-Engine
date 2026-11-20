@@ -34,14 +34,29 @@ describe('PostgreSQL database layer', () => {
     const first = await openDatabase(dataDir);
     assert.equal(first.driver, 'pglite');
     const migrations = await first.query<{ name: string }>('SELECT name FROM schema_migrations ORDER BY name');
-    assert.equal(migrations.rows.length, 8);
-    await first.query("INSERT INTO services (name, status) VALUES ('Persisted Service', 'available')");
+    assert.equal(migrations.rows.length, 10);
+    assert.ok(migrations.rows.some((r) => r.name === '008_catalog_and_settings.sql'));
+    assert.ok(migrations.rows.some((r) => r.name === '009_proposals_and_website_leads.sql'));
+    assert.ok(migrations.rows.some((r) => r.name === '010_invoices.sql'));
+    const basePriceCol = await first.queryOne<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'services' AND column_name = 'base_price_paise'`,
+    );
+    assert.equal(basePriceCol?.column_name, 'base_price_paise');
+    const invoiceTable = await first.queryOne<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables
+       WHERE table_schema = current_schema() AND table_name = 'invoices'`,
+    );
+    assert.equal(invoiceTable?.table_name, 'invoices');
+    await first.query("INSERT INTO services (name, status, base_price_paise) VALUES ('Persisted Service', 'available', 150000)");
     await first.close();
 
     const second = await openDatabase(dataDir);
     databases.push(second);
-    const services = await second.query<{ name: string }>('SELECT name FROM services');
-    assert.deepEqual(services.rows.map((r) => r.name), ['Persisted Service']);
+    const services = await second.query<{ name: string; base_price_paise: number }>('SELECT name, base_price_paise FROM services');
+    assert.deepEqual(services.rows.map((r) => ({ name: r.name, base_price_paise: Number(r.base_price_paise) })), [
+      { name: 'Persisted Service', base_price_paise: 150000 },
+    ]);
   });
 
   it('rolls back transactions completely on failure', async () => {

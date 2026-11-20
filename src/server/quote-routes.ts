@@ -2,11 +2,43 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { SupportEngine } from '../engine/support-engine.js';
 import { MAX_QUOTE_MARGIN, MIN_QUOTE_MARGIN } from '../pricing/margin.js';
+import { generateProposalPdf } from '../pricing/proposal-pdf.js';
 import { asyncHandler } from './async-handler.js';
 
 const marginSchema = z.object({
-  marginPercent: z.number().min(MIN_QUOTE_MARGIN).max(MAX_QUOTE_MARGIN),
+  marginPercent: z.number().finite().min(MIN_QUOTE_MARGIN).max(MAX_QUOTE_MARGIN),
 });
+
+const positiveMultiplierSchema = z.number().finite().positive();
+
+const companySizeMultipliersSchema = z.object({
+  '0-5': positiveMultiplierSchema,
+  '5-10': positiveMultiplierSchema,
+  '10-20': positiveMultiplierSchema,
+  '20+': positiveMultiplierSchema,
+});
+
+const multipliersSchema = z.object({
+  companySizeMultipliers: companySizeMultipliersSchema,
+});
+
+const termsSchema = z.object({
+  defaultTermsAndConditions: z.string().max(50_000),
+});
+
+const updateSettingsSchema = z
+  .object({
+    quoteMarginPercent: z.number().finite().min(MIN_QUOTE_MARGIN).max(MAX_QUOTE_MARGIN).optional(),
+    companySizeMultipliers: companySizeMultipliersSchema.optional(),
+    defaultTermsAndConditions: z.string().max(50_000).optional(),
+  })
+  .refine(
+    (value) =>
+      value.quoteMarginPercent !== undefined ||
+      value.companySizeMultipliers !== undefined ||
+      value.defaultTermsAndConditions !== undefined,
+    { message: 'Send at least one setting to update.' },
+  );
 
 const buildSchema = z.object({
   sessionId: z.string().min(1),
@@ -34,6 +66,33 @@ const rejectSchema = z.object({
   note: z.string().max(1000).optional().default(''),
 });
 
+const proposalItemSchema = z.object({
+  serviceId: z.number().int().positive().nullable().optional(),
+  priceItemId: z.number().int().positive().nullable().optional(),
+  itemCode: z.string().max(50).optional(),
+  description: z.string().min(1).max(500),
+  unit: z.string().max(50).optional(),
+  quantity: z.number().positive().max(100_000),
+  unitPricePaise: z.number().int().nonnegative(),
+  lineTotalPaise: z.number().int().nonnegative().optional(),
+});
+
+const createProposalSchema = z.object({
+  sessionId: z.string().nullable().optional(),
+  channel: z.string().max(50).optional(),
+  externalUserId: z.string().max(255).optional(),
+  intakeId: z.number().int().positive().nullable().optional(),
+  clientName: z.string().min(1).max(255),
+  clientEmail: z.string().max(255).optional(),
+  companySize: z.string().max(50).optional(),
+  serviceId: z.number().int().positive().nullable().optional(),
+  serviceName: z.string().max(255).optional(),
+  marginPercent: z.number().finite().optional(),
+  termsAndConditions: z.string().max(50_000).optional(),
+  notes: z.string().max(2000).optional(),
+  items: z.array(proposalItemSchema).min(1).max(100),
+});
+
 export function createQuoteRouter(engine: SupportEngine): Router {
   const router = Router();
 
@@ -49,6 +108,39 @@ export function createQuoteRouter(engine: SupportEngine): Router {
       });
     }
     await engine.setQuoteMarginPercent(parsed.data.marginPercent, res.locals.admin?.id ?? null);
+    res.json(await settingsPayload(engine));
+  }));
+
+  router.put('/settings/multipliers', asyncHandler(async (req, res) => {
+    const parsed = multipliersSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: 'Send positive finite multipliers for 0-5, 5-10, 10-20, and 20+.',
+      });
+    }
+    await engine.setCompanySizeMultipliers(parsed.data.companySizeMultipliers, res.locals.admin?.id ?? null);
+    res.json(await settingsPayload(engine));
+  }));
+
+  router.put('/settings/terms', asyncHandler(async (req, res) => {
+    const parsed = termsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: 'Send defaultTermsAndConditions as a string (max 50,000 characters).',
+      });
+    }
+    await engine.setDefaultTermsAndConditions(parsed.data.defaultTermsAndConditions, res.locals.admin?.id ?? null);
+    res.json(await settingsPayload(engine));
+  }));
+
+  router.put('/settings', asyncHandler(async (req, res) => {
+    const parsed = updateSettingsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: 'Send a valid quoteMarginPercent, companySizeMultipliers, or defaultTermsAndConditions.',
+      });
+    }
+    await engine.updateSettings(parsed.data, res.locals.admin?.id ?? null);
     res.json(await settingsPayload(engine));
   }));
 
@@ -155,6 +247,58 @@ export function createQuoteRouter(engine: SupportEngine): Router {
     }
   }));
 
+  router.post('/proposals', asyncHandler(async (req, res) => {
+    const parsed = createProposalSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    const created = await engine.createProposal({
+      ...parsed.data,
+      createdBy: res.locals.admin?.username || 'admin',
+    });
+    res.status(201).json(created);
+  }));
+
+  router.get(['/quotes/:id/pdf', '/proposals/:id/pdf'], asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid quote id' });
+    const found = await engine.getQuote(id);
+    if (!found) return res.status(404).json({ error: 'Quote not found' });
+
+    const quote = found.quote;
+    const items = found.items;
+
+    const pdfBuffer = await generateProposalPdf({
+      quoteNumber: quote.quote_number,
+      date: (quote.created_at || '').slice(0, 10) || new Date().toISOString().slice(0, 10),
+      validUntil: quote.expires_at ? quote.expires_at.slice(0, 10) : undefined,
+      clientName: quote.client_name || quote.service_name || 'Valued Client',
+      clientCompany: quote.client_name || quote.service_name,
+      clientEmail: quote.client_email || undefined,
+      clientPhone: quote.external_user_id,
+      companySize: quote.company_size || undefined,
+      channel: quote.channel,
+      items: items.map((it) => ({
+        itemCode: it.item_code,
+        description: it.description,
+        unit: it.unit,
+        quantity: it.quantity,
+        unitPricePaise: it.quoted_unit_price_paise,
+        lineTotalPaise: it.line_total_paise,
+      })),
+      subtotalPaise: quote.subtotal_paise,
+      marginPercent: quote.margin_percent,
+      totalPaise: quote.total_paise,
+      termsAndConditions: quote.terms_and_conditions || undefined,
+      notes: quote.notes || undefined,
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${quote.quote_number}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+  }));
+
   return router;
 }
 
@@ -168,9 +312,5 @@ function quoteErrorMessage(error: unknown): string {
 }
 
 async function settingsPayload(engine: SupportEngine) {
-  return {
-    quoteMarginPercent: await engine.getQuoteMarginPercent(),
-    minMarginPercent: MIN_QUOTE_MARGIN,
-    maxMarginPercent: MAX_QUOTE_MARGIN,
-  };
+  return engine.getSettings();
 }
