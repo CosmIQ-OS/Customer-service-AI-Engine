@@ -30,7 +30,7 @@ function Pill({
   tone,
 }: {
   children: any;
-  tone?: 'orange' | 'acc' | 'black' | 'emerald' | 'ok' | 'rose' | 'danger' | 'sky' | 'whatsapp' | 'telegram';
+  tone?: 'orange' | 'acc' | 'black' | 'emerald' | 'ok' | 'rose' | 'danger' | 'sky' | 'whatsapp' | 'telegram' | 'website';
 }) {
   return <span className={`pill ${tone || ''}`}>{children}</span>;
 }
@@ -59,6 +59,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
 
   const [intakeSearch, setIntakeSearch] = useState('');
+  const [intakeChannelFilter, setIntakeChannelFilter] = useState<'all' | 'website' | 'whatsapp' | 'telegram'>('all');
   const [logFilter, setLogFilter] = useState<'all' | 'inbound' | 'outbound' | 'system'>('all');
 
   const [showServiceModal, setShowServiceModal] = useState(false);
@@ -197,15 +198,24 @@ export function App() {
 
   if (!admin) return <LoginView onLogin={setAdmin} theme={theme} onToggleTheme={toggleTheme} />;
 
+  const websiteIntakesCount = intakes.filter((i) => i.channel?.toLowerCase() === 'website').length;
+  const whatsappIntakesCount = intakes.filter((i) => i.channel?.toLowerCase() === 'whatsapp').length;
+  const telegramIntakesCount = intakes.filter((i) => i.channel?.toLowerCase() === 'telegram').length;
+
   const filteredIntakes = intakes.filter((row) => {
     const q = intakeSearch.toLowerCase();
-    return (
+    const matchSearch =
       !q ||
       row.company_name?.toLowerCase().includes(q) ||
       row.service_name?.toLowerCase().includes(q) ||
       row.current_tools?.toLowerCase().includes(q) ||
-      row.external_user_id?.toLowerCase().includes(q)
-    );
+      row.external_user_id?.toLowerCase().includes(q);
+
+    if (!matchSearch) return false;
+    if (intakeChannelFilter !== 'all') {
+      return row.channel?.toLowerCase() === intakeChannelFilter;
+    }
+    return true;
   });
 
   const filteredLogs = logs.filter((row) => {
@@ -412,7 +422,12 @@ export function App() {
                     {intakes.slice(0, 4).map((item, idx) => (
                       <div key={item.id ?? idx} className="list-row" style={{ flexDirection: 'column', gap: 6 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 12 }}>
-                          <strong>{item.company_name || 'Prospect Lead'}</strong>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <Pill tone={item.channel === 'website' ? 'website' : item.channel === 'whatsapp' ? 'whatsapp' : 'telegram'}>
+                              {item.channel === 'website' ? '🌐 WEB' : item.channel?.toUpperCase()}
+                            </Pill>
+                            <strong>{item.company_name || 'Prospect Lead'}</strong>
+                          </div>
                           <Pill tone={item.status === 'complete' ? 'ok' : 'acc'}>{item.status}</Pill>
                         </div>
                         <div className="mono muted" style={{ fontSize: '11px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -457,11 +472,48 @@ export function App() {
             />
           </div>
 
+          <div style={{ display: 'flex', gap: 8, margin: '10px 0 16px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className={`btn ${intakeChannelFilter === 'all' ? 'primary' : 'secondary'}`}
+              style={{ minHeight: 28, fontSize: '11px', padding: '0 12px' }}
+              onClick={() => setIntakeChannelFilter('all')}
+            >
+              ALL LEADS ({intakes.length})
+            </button>
+            <button
+              type="button"
+              className={`btn ${intakeChannelFilter === 'website' ? 'primary' : 'secondary'}`}
+              style={{ minHeight: 28, fontSize: '11px', padding: '0 12px', background: intakeChannelFilter === 'website' ? '#2563eb' : undefined, borderColor: '#2563eb', color: intakeChannelFilter === 'website' ? '#fff' : undefined }}
+              onClick={() => setIntakeChannelFilter('website')}
+            >
+              🌐 WEBSITE LEADS ({websiteIntakesCount})
+            </button>
+            <button
+              type="button"
+              className={`btn ${intakeChannelFilter === 'whatsapp' ? 'primary' : 'secondary'}`}
+              style={{ minHeight: 28, fontSize: '11px', padding: '0 12px' }}
+              onClick={() => setIntakeChannelFilter('whatsapp')}
+            >
+              WHATSAPP ({whatsappIntakesCount})
+            </button>
+            <button
+              type="button"
+              className={`btn ${intakeChannelFilter === 'telegram' ? 'primary' : 'secondary'}`}
+              style={{ minHeight: 28, fontSize: '11px', padding: '0 12px' }}
+              onClick={() => setIntakeChannelFilter('telegram')}
+            >
+              TELEGRAM ({telegramIntakesCount})
+            </button>
+          </div>
+
           <Table
             cols={['Channel', 'Client ID', 'Company', 'Size', 'Tools Stack', 'Requested Service', 'Lang', 'Status', 'Updated']}
             rows={filteredIntakes}
             render={(r) => [
-              <Pill tone={r.channel === 'whatsapp' ? 'whatsapp' : 'telegram'}>{r.channel}</Pill>,
+              <Pill tone={r.channel === 'website' ? 'website' : r.channel === 'whatsapp' ? 'whatsapp' : 'telegram'}>
+                {r.channel === 'website' ? '🌐 WEBSITE' : r.channel?.toUpperCase()}
+              </Pill>,
               <span className="mono">{r.external_user_id}</span>,
               <strong>{r.company_name || '—'}</strong>,
               <span className="mono small">{r.company_size || '—'}</span>,

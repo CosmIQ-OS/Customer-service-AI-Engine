@@ -152,13 +152,13 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
   const normalizeLeadPayload = (raw: Record<string, unknown> | null | undefined) => {
     if (!raw || typeof raw !== 'object') return {};
     return {
-      company_name: raw.company_name ?? raw.companyName ?? raw.company ?? '',
+      company_name: raw.company_name ?? raw.companyName ?? raw.company ?? raw.domain ?? '',
       company_size: raw.company_size ?? raw.companySize ?? raw.size ?? '',
       contact_person: raw.contact_person ?? raw.contactPerson ?? raw.name ?? raw.fullName ?? '',
       email: raw.email ?? '',
       phone: raw.phone ?? raw.phoneNumber ?? raw.whatsapp ?? '',
       current_tools: raw.current_tools ?? raw.currentTools ?? raw.tools ?? '',
-      service_name: raw.service_name ?? raw.serviceName ?? raw.serviceNeeded ?? '',
+      service_name: raw.service_name ?? raw.serviceName ?? raw.serviceNeeded ?? (Array.isArray(raw.automations) ? raw.automations.join(', ') : raw.automations) ?? '',
       service_id: raw.service_id ?? raw.serviceId ?? null,
       notes: raw.notes ?? raw.message ?? raw.requirements ?? '',
     };

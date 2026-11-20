@@ -134,8 +134,21 @@ export class SupportEngine {
     const sessionId = `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const externalUserId = input.phone || input.email || input.company_name;
 
-    return this.db.transaction(async (tx) => {
-      await sessionsRepo.upsertSession(tx, {
+    const summaryText = [
+      `🌐 Inbound Website Lead from ${input.company_name}`,
+      input.contact_person ? `Contact: ${input.contact_person}` : '',
+      input.email ? `Email: ${input.email}` : '',
+      input.phone ? `Phone: ${input.phone}` : '',
+      input.company_size ? `Company Size: ${input.company_size}` : '',
+      input.service_name ? `Requested Service: ${input.service_name}` : '',
+      input.current_tools ? `Current Tools: ${input.current_tools}` : '',
+      input.notes ? `Notes: ${input.notes}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const result = await this.db.transaction(async (tx) => {
+      const session = await sessionsRepo.upsertSession(tx, {
         id: sessionId,
         channel: 'website',
         external_user_id: externalUserId,
@@ -150,19 +163,6 @@ export class SupportEngine {
         },
         last_intent: 'website_lead',
       });
-
-      const summaryText = [
-        `🌐 Inbound Website Lead from ${input.company_name}`,
-        input.contact_person ? `Contact: ${input.contact_person}` : '',
-        input.email ? `Email: ${input.email}` : '',
-        input.phone ? `Phone: ${input.phone}` : '',
-        input.company_size ? `Company Size: ${input.company_size}` : '',
-        input.service_name ? `Requested Service: ${input.service_name}` : '',
-        input.current_tools ? `Current Tools: ${input.current_tools}` : '',
-        input.notes ? `Notes: ${input.notes}` : '',
-      ]
-        .filter(Boolean)
-        .join('\n');
 
       await messagesRepo.appendMessage(tx, {
         session_id: sessionId,
@@ -195,8 +195,20 @@ export class SupportEngine {
         body: `${input.contact_person || 'Website visitor'} submitted lead inquiry for ${input.service_name || 'Services'}.`,
       });
 
-      return { sessionId, intakeId: intake.id };
+      return { sessionId, intakeId: intake.id, session };
     });
+
+    try {
+      await this.conversations.recordInbound(
+        result.session,
+        summaryText,
+        input.company_name ? `${input.company_name} (Website Lead)` : (input.contact_person || 'Website Lead')
+      );
+    } catch (convErr) {
+      console.warn('[website-lead] Could not register conversation thread:', convErr);
+    }
+
+    return { sessionId: result.sessionId, intakeId: result.intakeId };
   }
 
   /** Builds a quote with the pricing agent and queues it for admin approval. */

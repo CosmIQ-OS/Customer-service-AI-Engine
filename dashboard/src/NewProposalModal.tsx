@@ -324,7 +324,7 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
                       <option value="">-- Choose a Lead from WhatsApp / Website --</option>
                       {intakes.map((intake) => (
                         <option key={intake.id} value={String(intake.id)}>
-                          [{intake.channel.toUpperCase()}] {intake.company_name} — {intake.service_name || 'Inquiry'} ({intake.company_size || 'N/A'}) · {intake.external_user_id}
+                          [{intake.channel === 'website' ? '🌐 WEBSITE LEAD' : intake.channel.toUpperCase()}] {intake.company_name || 'Prospect'} — {intake.service_name || 'Inquiry'} ({intake.company_size || 'N/A'}) · {intake.external_user_id}
                         </option>
                       ))}
                     </select>

@@ -43,7 +43,10 @@ function getInitials(name?: string, fallback = 'US'): string {
 }
 
 function ChannelBadge({ channel }: { channel: string }) {
-  const normalized = channel.toLowerCase();
+  const normalized = (channel || '').toLowerCase();
+  if (normalized === 'website') {
+    return <span className="pill website">🌐 WEBSITE</span>;
+  }
   return (
     <span className={`pill ${normalized === 'whatsapp' ? 'whatsapp' : 'telegram'}`}>
       {normalized === 'whatsapp' ? 'WHATSAPP' : normalized === 'telegram' ? 'TELEGRAM' : normalized.toUpperCase()}
@@ -149,7 +152,7 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
-  const [filterMode, setFilterMode] = useState<'all' | 'human' | 'ai'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'website' | 'human' | 'ai'>('all');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -386,6 +389,7 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
 
   const active = conversations.find((row) => row.sessionId === selected);
   const waitingCount = conversations.filter((row) => row.status === 'open' && row.mode !== 'ai').length;
+  const websiteCount = conversations.filter((row) => row.channel?.toLowerCase() === 'website').length;
 
   const filtered = conversations.filter((c) => {
     const q = search.toLowerCase();
@@ -396,6 +400,7 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
       c.lastMessage?.toLowerCase().includes(q);
 
     if (!matchSearch) return false;
+    if (filterMode === 'website') return c.channel?.toLowerCase() === 'website';
     if (filterMode === 'human') return c.mode === 'human' || c.mode === 'paused';
     if (filterMode === 'ai') return c.mode === 'ai';
     return true;
@@ -448,6 +453,14 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
                 onClick={() => setFilterMode('all')}
               >
                 ALL ({conversations.length})
+              </button>
+              <button
+                type="button"
+                className={`inbox-filter-btn ${filterMode === 'website' ? 'active' : ''}`}
+                onClick={() => setFilterMode('website')}
+                style={filterMode === 'website' ? { background: '#2563eb', color: '#fff', borderColor: '#1d4ed8' } : {}}
+              >
+                🌐 WEBSITE ({websiteCount})
               </button>
               <button
                 type="button"
