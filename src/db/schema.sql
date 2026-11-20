@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS services (
   description TEXT NOT NULL DEFAULT '',
   category TEXT NOT NULL DEFAULT 'general',
   status TEXT NOT NULL CHECK (status IN ('available', 'unavailable', 'limited', 'maintenance')) DEFAULT 'available',
+  base_price_paise BIGINT NOT NULL DEFAULT 0 CHECK (base_price_paise >= 0),
   availability_note TEXT NOT NULL DEFAULT '',
   metadata TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),

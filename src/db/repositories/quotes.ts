@@ -10,8 +10,12 @@ export interface QuoteRecord {
   channel: string;
   external_user_id: string;
   intake_id: number | null;
-  service_id: number;
+  service_id: number | null;
   service_name: string;
+  client_name?: string;
+  client_email?: string;
+  company_size?: string;
+  terms_and_conditions?: string;
   status: QuoteStatus;
   currency: string;
   margin_percent: number;
@@ -62,7 +66,11 @@ function mapQuote(row: QuoteRecord): QuoteRecord {
     ...row,
     id: Number(row.id),
     intake_id: row.intake_id === null ? null : Number(row.intake_id),
-    service_id: Number(row.service_id),
+    service_id: row.service_id === null ? null : Number(row.service_id),
+    client_name: row.client_name ?? '',
+    client_email: row.client_email ?? '',
+    company_size: row.company_size ?? '',
+    terms_and_conditions: row.terms_and_conditions ?? '',
     margin_percent: Number(row.margin_percent),
     subtotal_paise: Number(row.subtotal_paise),
     total_paise: Number(row.total_paise),
@@ -183,6 +191,111 @@ export async function createQuote(
           item.adminUnitPricePaise,
           item.quotedUnitPricePaise,
           item.lineTotalPaise,
+          index + 1,
+        ],
+      );
+    }
+
+    return mapQuote(quote!);
+  });
+}
+
+export interface ProposalItemInput {
+  serviceId?: number | null;
+  priceItemId?: number | null;
+  itemCode?: string;
+  description: string;
+  unit?: string;
+  quantity: number;
+  unitPricePaise: number;
+  lineTotalPaise?: number;
+}
+
+export interface ProposalInput {
+  sessionId?: string | null;
+  channel?: string;
+  externalUserId?: string;
+  intakeId?: number | null;
+  clientName: string;
+  clientEmail?: string;
+  companySize?: string;
+  serviceId?: number | null;
+  serviceName?: string;
+  marginPercent?: number;
+  termsAndConditions?: string;
+  notes?: string;
+  createdBy?: string;
+  items: ProposalItemInput[];
+}
+
+export async function createProposal(db: DB, input: ProposalInput): Promise<QuoteRecord> {
+  if (input.items.length === 0) throw new Error('A proposal needs at least one line item.');
+  return db.transaction(async (tx) => {
+    const nextRow = await tx.queryOne<{ next: number }>('SELECT (COALESCE(MAX(id), 0) + 1)::int AS next FROM quotes');
+    const next = Number(nextRow?.next ?? 1);
+    const quoteNumber = `P-${new Date().getUTCFullYear()}-${String(next).padStart(4, '0')}`;
+
+    const subtotalPaise = input.items.reduce(
+      (total, item) => total + Math.round(item.unitPricePaise * item.quantity),
+      0,
+    );
+    const marginPercent = input.marginPercent ?? 0;
+    const totalPaise = input.items.reduce(
+      (total, item) => total + (item.lineTotalPaise ?? Math.round(item.unitPricePaise * item.quantity)),
+      0,
+    );
+
+    const quote = await tx.queryOne<QuoteRecord>(
+      `INSERT INTO quotes
+        (quote_number, session_id, channel, external_user_id, intake_id, service_id, service_name,
+         client_name, client_email, company_size, terms_and_conditions,
+         status, margin_percent, subtotal_paise, total_paise, margin_paise, notes, created_by)
+       VALUES
+        ($1, $2, $3, $4, $5, $6, $7,
+         $8, $9, $10, $11,
+         'draft', $12, $13, $14, $15, $16, $17)
+       RETURNING *`,
+      [
+        quoteNumber,
+        input.sessionId ?? null,
+        input.channel ?? 'direct',
+        input.externalUserId ?? input.clientEmail ?? input.clientName,
+        input.intakeId ?? null,
+        input.serviceId ?? null,
+        input.serviceName ?? (input.items[0]?.description || 'Custom Proposal'),
+        input.clientName,
+        input.clientEmail ?? '',
+        input.companySize ?? '',
+        input.termsAndConditions ?? '',
+        marginPercent,
+        subtotalPaise,
+        totalPaise,
+        totalPaise - subtotalPaise,
+        input.notes ?? '',
+        input.createdBy ?? 'admin',
+      ],
+    );
+    const quoteId = Number(quote!.id);
+
+    for (let index = 0; index < input.items.length; index += 1) {
+      const item = input.items[index];
+      const lineTotal = item.lineTotalPaise ?? Math.round(item.unitPricePaise * item.quantity);
+      await tx.query(
+        `INSERT INTO quote_items
+          (quote_id, service_id, price_item_id, item_code, description, unit, quantity,
+           admin_unit_price_paise, quoted_unit_price_paise, line_total_paise, sort_order)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [
+          quoteId,
+          item.serviceId ?? null,
+          item.priceItemId ?? null,
+          item.itemCode ?? `ITEM-${String(index + 1).padStart(2, '0')}`,
+          item.description,
+          item.unit ?? 'unit',
+          item.quantity,
+          item.unitPricePaise,
+          item.unitPricePaise,
+          lineTotal,
           index + 1,
         ],
       );

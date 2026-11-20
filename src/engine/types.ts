@@ -7,6 +7,7 @@ export interface ServiceRecord {
   category: string;
   status: 'available' | 'unavailable' | 'limited' | 'maintenance';
   availability_note: string;
+  base_price_paise: number;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;

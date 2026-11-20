@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
+import { NewProposalModal } from './NewProposalModal';
 
 interface QuoteSettings {
   quoteMarginPercent: number;
@@ -57,6 +58,7 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
   const [margin, setMargin] = useState('');
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [detail, setDetail] = useState<QuoteDetail | null>(null);
+  const [showNewProposal, setShowNewProposal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -129,10 +131,21 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
 
   return (
     <section className="card">
-      <h2 className="panel-title">
-        <strong>Quotes</strong>
-        <span>pricing agent drafts</span>
-      </h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <h2 className="panel-title" style={{ margin: 0 }}>
+          <strong>PROPOSALS &amp; QUOTES</strong>
+          <span>Commercial drafts &amp; client proposals</span>
+        </h2>
+        <button
+          type="button"
+          className="btn primary"
+          onClick={() => setShowNewProposal(true)}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+        >
+          <span>+</span>
+          <span>NEW PROPOSAL</span>
+        </button>
+      </div>
 
       {settings ? (
         <form className="form" onSubmit={saveMargin} noValidate>
@@ -213,7 +226,16 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
                     <td className="small">{quote.service_name}</td>
                     <td className="num">{formatInr(quote.total_paise)}</td>
                     <td><span className="pill">{quote.status}</span></td>
-                    <td className="act">
+                    <td className="act" style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                      <a
+                        className="btn secondary"
+                        style={{ minHeight: 30, padding: '4px 8px', fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                        href={`/api/quotes/${quote.id}/pdf`}
+                        download={`${quote.quote_number}.pdf`}
+                        title="Download Branded Vector PDF"
+                      >
+                        PDF ↓
+                      </a>
                       <button
                         className="btn secondary"
                         style={{ minHeight: 30, padding: '4px 10px', fontSize: '11px' }}
@@ -244,7 +266,18 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
             <strong className="mono" style={{ fontSize: '0.92rem' }}>
               {detail.quote.quote_number} · {detail.quote.margin_percent}% markup
             </strong>
-            <span className="pill">{detail.quote.status}</span>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <a
+                className="btn primary"
+                style={{ minHeight: 28, padding: '2px 12px', fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                href={`/api/quotes/${detail.quote.id}/pdf`}
+                download={`${detail.quote.quote_number}.pdf`}
+              >
+                <span>DOWNLOAD PDF</span>
+                <span>↓</span>
+              </a>
+              <span className="pill">{detail.quote.status}</span>
+            </div>
           </div>
 
           <div className="table-wrap">
@@ -291,6 +324,15 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
             </p>
           )}
         </div>
+      )}
+
+      {showNewProposal && (
+        <NewProposalModal
+          onClose={() => setShowNewProposal(false)}
+          onSaved={() => {
+            load().catch(() => undefined);
+          }}
+        />
       )}
     </section>
   );

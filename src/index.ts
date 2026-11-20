@@ -8,7 +8,7 @@ import { createApp } from './server/app.js';
 import { loadConfig, resolveDatabaseTarget } from './config/index.js';
 import { createLLMProvider } from './llm/index.js';
 import { AdminAuth } from './auth/admin-auth.js';
-import { ensureQuoteMarginSetting } from './db/repositories/settings.js';
+import { ensureDefaultSettings } from './db/repositories/settings.js';
 import { activePriceTable, publishPriceTable } from './db/repositories/pricing.js';
 
 export async function bootstrap() {
@@ -56,7 +56,7 @@ export async function bootstrap() {
   }
 
   await seedIfEmpty(engine);
-  await ensureQuoteMarginSetting(db, config.QUOTE_MARGIN_PERCENT);
+  await ensureDefaultSettings(db, config.QUOTE_MARGIN_PERCENT);
 
   if (!(await auth.hasAdmins())) {
     const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || 'AdminSecret2026!';
@@ -146,21 +146,25 @@ const COSMIQ_SERVICES = [
     name: 'Company Internal Operations Automation',
     description: 'Automation of recurring internal operations, such as approvals, reporting, and handoffs between teams.',
     category: 'automation',
+    base_price_paise: 4_000_000,
   },
   {
     name: 'AI Native Internal System',
     description: 'Internal systems designed around AI from the start, including assistants for staff and knowledge search.',
     category: 'ai',
+    base_price_paise: 7_500_000,
   },
   {
     name: 'Workflow Automation',
     description: 'End-to-end business workflows connected across the tools a team already uses.',
     category: 'workflow',
+    base_price_paise: 5_000_000,
   },
   {
     name: 'WhatsApp Agent Services',
     description: 'AI agents for WhatsApp customer conversations, with human handoff when needed.',
     category: 'whatsapp',
+    base_price_paise: 5_500_000,
   },
 ] as const;
 
@@ -260,9 +264,9 @@ async function seedCosmiqPriceTables(engine: SupportEngine) {
 
 async function seedIfEmpty(engine: SupportEngine) {
   if ((await engine.listServices()).length === 0) {
-    await engine.createService({ name: 'Live Chat Support', description: 'Real-time assistance for account and product questions.', category: 'support', status: 'available', availability_note: 'Mon-Fri 09:00-18:00' });
-    await engine.createService({ name: 'Billing Assistance', description: 'Invoices, refunds, and payment methods.', category: 'billing', status: 'limited', availability_note: 'Email follow-up within 1 business day' });
-    await engine.createService({ name: 'API Integration Support', description: 'Developer onboarding and integration troubleshooting.', category: 'technical', status: 'maintenance', availability_note: 'Back online after scheduled maintenance' });
+    await engine.createService({ name: 'Live Chat Support', description: 'Real-time assistance for account and product questions.', category: 'support', status: 'available', availability_note: 'Mon-Fri 09:00-18:00', base_price_paise: 1_500_000 });
+    await engine.createService({ name: 'Billing Assistance', description: 'Invoices, refunds, and payment methods.', category: 'billing', status: 'limited', availability_note: 'Email follow-up within 1 business day', base_price_paise: 1_000_000 });
+    await engine.createService({ name: 'API Integration Support', description: 'Developer onboarding and integration troubleshooting.', category: 'technical', status: 'maintenance', availability_note: 'Back online after scheduled maintenance', base_price_paise: 2_000_000 });
   }
   await seedCosmiqServices(engine);
   await seedCosmiqFaqs(engine);

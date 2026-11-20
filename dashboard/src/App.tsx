@@ -6,6 +6,8 @@ import { Quotes } from './Quotes';
 import { Approvals } from './Approvals';
 import { LiveConversations } from './LiveConversations';
 import { NotificationBell } from './NotificationBell';
+import { ServiceModal } from './ServiceModal';
+import { ServiceSettingsModal } from './ServiceSettingsModal';
 
 type AnyRow = Record<string, any>;
 type TabKey = 'overview' | 'inbox' | 'intakes' | 'quotes' | 'services' | 'logs';
@@ -17,6 +19,10 @@ function fmtTime(v?: string) {
   return isNaN(d.getTime())
     ? v
     : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatInr(num: number): string {
+  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(num);
 }
 
 function Pill({
@@ -54,6 +60,40 @@ export function App() {
 
   const [intakeSearch, setIntakeSearch] = useState('');
   const [logFilter, setLogFilter] = useState<'all' | 'inbound' | 'outbound' | 'system'>('all');
+
+  const [showServiceModal, setShowServiceModal] = useState(false);
+  const [editingService, setEditingService] = useState<any>(null);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+
+  async function toggleServiceStatus(s: any) {
+    const nextStatus =
+      s.status === 'available'
+        ? 'limited'
+        : s.status === 'limited'
+          ? 'maintenance'
+          : s.status === 'maintenance'
+            ? 'unavailable'
+            : 'available';
+    try {
+      await api(`/api/services/${s.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      load(false);
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : 'Could not update status');
+    }
+  }
+
+  async function deleteService(s: any) {
+    if (!window.confirm(`Are you sure you want to delete "${s.name}"? This cannot be undone.`)) return;
+    try {
+      await api(`/api/services/${s.id}`, { method: 'DELETE' });
+      load(false);
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : 'Could not delete service');
+    }
+  }
 
   const [sim, setSim] = useState({
     channel: 'whatsapp',
@@ -263,7 +303,7 @@ export function App() {
           onClick={() => setActiveTab('quotes')}
         >
           <span className="tab-index">04</span>
-          <span>QUOTES &amp; APPROVALS</span>
+          <span>PROPOSALS &amp; QUOTES</span>
           {approvalsCount > 0 && <span className="tab-badge alert">{approvalsCount} PENDING</span>}
         </button>
 
@@ -435,7 +475,7 @@ export function App() {
         </section>
       )}
 
-      {/* 04 QUOTES & APPROVALS */}
+      {/* 04 PROPOSALS & QUOTES */}
       {activeTab === 'quotes' && (
         <div className="stack">
           <Approvals refreshKey={dataVersion} onChanged={load} />
@@ -447,24 +487,81 @@ export function App() {
       {activeTab === 'services' && (
         <div className="split-grid">
           <section className="card">
-            <div className="panel-title">
-              <strong>Services Catalog</strong>
-              <Pill tone="ok">{availableServicesCount} AVAILABLE</Pill>
+            <div className="panel-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <div>
+                <strong>Services Catalog</strong>
+                <Pill tone="ok">{availableServicesCount} AVAILABLE</Pill>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  style={{ minHeight: 30, fontSize: '11px', padding: '0 10px' }}
+                  onClick={() => setShowSettingsModal(true)}
+                  title="Configure company size multipliers and default Terms & Conditions template"
+                >
+                  ⚙ Settings
+                </button>
+                <button
+                  type="button"
+                  className="btn primary"
+                  style={{ minHeight: 30, fontSize: '11px', padding: '0 10px' }}
+                  onClick={() => {
+                    setEditingService(null);
+                    setShowServiceModal(true);
+                  }}
+                >
+                  + Add Service
+                </button>
+              </div>
             </div>
             <p className="sub">
-              Authoritative service catalog exposed to the conversational assistant.
+              Authoritative service catalog exposed to the conversational assistant, pricing engine, and proposal builder.
             </p>
 
             <Table
-              cols={['Service Name', 'Category', 'Status', 'Availability Note']}
+              cols={['Service Name', 'Base Price (₹)', 'Category', 'Status', 'Actions']}
               rows={services}
               render={(s) => [
-                <strong>{s.name}</strong>,
+                <div>
+                  <strong>{s.name}</strong>
+                  <div className="small muted" style={{ marginTop: 2 }}>{s.availability_note || s.description}</div>
+                </div>,
+                <strong className="mono" style={{ color: 'var(--accent-primary)', fontSize: '0.92rem' }}>
+                  {formatInr((s.base_price_paise || 0) / 100)}
+                </strong>,
                 <Pill>{s.category || 'general'}</Pill>,
-                <Pill tone={s.status === 'available' ? 'ok' : 'acc'}>{s.status}</Pill>,
-                <span className="small" style={{ color: 'var(--text-secondary)' }}>
-                  {s.availability_note || s.description}
-                </span>,
+                <button
+                  type="button"
+                  onClick={() => toggleServiceStatus(s)}
+                  title="Click to cycle status: available → limited → maintenance → unavailable"
+                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                >
+                  <Pill tone={s.status === 'available' ? 'ok' : s.status === 'limited' ? 'orange' : s.status === 'maintenance' ? 'acc' : 'rose'}>
+                    {s.status} ⟳
+                  </Pill>
+                </button>,
+                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    style={{ minHeight: 26, fontSize: '10px', padding: '2px 8px' }}
+                    onClick={() => {
+                      setEditingService(s);
+                      setShowServiceModal(true);
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="btn danger"
+                    style={{ minHeight: 26, fontSize: '10px', padding: '2px 8px' }}
+                    onClick={() => deleteService(s)}
+                  >
+                    Delete
+                  </button>
+                </div>,
               ]}
             />
           </section>
@@ -591,6 +688,24 @@ export function App() {
             </section>
           </div>
         </div>
+      )}
+
+      {showServiceModal && (
+        <ServiceModal
+          service={editingService}
+          onClose={() => {
+            setShowServiceModal(false);
+            setEditingService(null);
+          }}
+          onSaved={() => load(false)}
+        />
+      )}
+
+      {showSettingsModal && (
+        <ServiceSettingsModal
+          onClose={() => setShowSettingsModal(false)}
+          onSaved={() => load(false)}
+        />
       )}
     </div>
   );
