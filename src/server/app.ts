@@ -61,6 +61,10 @@ const faqSchema = z.object({
   enabled: z.boolean().optional(),
 });
 
+const updateIntakeStatusSchema = z.object({
+  status: z.enum(['collecting', 'collected', 'quoted', 'deal_won', 'completed', 'complete']),
+});
+
 export function createApp(engine: SupportEngine, options: AppOptions) {
   const app = express();
   app.use(cors({ origin: options.dashboardOrigin ?? false, credentials: true }));
@@ -203,7 +207,11 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
         logs: logs.length,
         faqs: faqs.filter((f) => f.enabled).length,
         intakes: intakes.length,
-        completeIntakes: intakes.filter((i) => i.status === 'complete').length,
+        completeIntakes: intakes.filter((i) => i.status !== 'collecting').length,
+        collectedIntakes: intakes.filter((i) => i.status === 'collected').length,
+        quotedIntakes: intakes.filter((i) => i.status === 'quoted').length,
+        dealWonIntakes: intakes.filter((i) => i.status === 'deal_won').length,
+        completedIntakes: intakes.filter((i) => i.status === 'completed').length,
       },
       recentRequests: requests.slice(0, 8),
       recentLogs: logs.slice(0, 10),
@@ -294,6 +302,16 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
   }));
   app.get('/api/intakes', asyncHandler(async (req, res) => {
     res.json(await engine.listIntakes(Number(req.query.limit) || 100));
+  }));
+  app.patch('/api/intakes/:id', asyncHandler(async (req, res) => {
+    const id = parseServiceId(req.params.id);
+    if (id === null) return res.status(400).json({ error: 'Invalid intake id' });
+    const parsed = updateIntakeStatusSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const normalizedStatus = parsed.data.status === 'complete' ? 'completed' : parsed.data.status;
+    const updated = await engine.updateIntakeStatus(id, normalizedStatus, res.locals.admin?.id ?? null);
+    if (!updated) return res.status(404).json({ error: 'Intake not found' });
+    res.json(updated);
   }));
 
   app.post('/api/chat/simulate', asyncHandler(async (req, res) => {

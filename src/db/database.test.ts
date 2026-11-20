@@ -34,9 +34,10 @@ describe('PostgreSQL database layer', () => {
     const first = await openDatabase(dataDir);
     assert.equal(first.driver, 'pglite');
     const migrations = await first.query<{ name: string }>('SELECT name FROM schema_migrations ORDER BY name');
-    assert.equal(migrations.rows.length, 9);
+    assert.equal(migrations.rows.length, 10);
     assert.ok(migrations.rows.some((r) => r.name === '008_catalog_and_settings.sql'));
     assert.ok(migrations.rows.some((r) => r.name === '009_proposals_and_website_leads.sql'));
+    assert.ok(migrations.rows.some((r) => r.name === '010_lead_status_and_workflow.sql'));
     const basePriceCol = await first.queryOne<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
        WHERE table_schema = current_schema() AND table_name = 'services' AND column_name = 'base_price_paise'`,

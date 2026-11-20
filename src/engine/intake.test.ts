@@ -70,11 +70,11 @@ describe('intake flow', () => {
     assert.equal(intake.current_tools, 'Slack and Notion');
     assert.equal(intake.service_id, workflow.id);
     assert.equal(intake.service_name, 'Workflow Automation');
-    assert.equal(intake.status, 'complete');
+    assert.equal(intake.status, 'collected');
     assert.doesNotMatch(second.reply, /₹|INR|\bprice\b/i);
 
     const listed = (await engine.listIntakes(10)).find((record) => record.session_id === first.sessionId);
-    assert.equal(listed?.status, 'complete');
+    assert.equal(listed?.status, 'collected');
   });
 
   it('recalls saved intake details instead of asking again', async () => {
@@ -84,7 +84,7 @@ describe('intake flow', () => {
       externalUserId: 'intake-user-2',
       text: 'Company: Beta Labs; Size: 25 people; Tools: Excel; Service: Workflow Automation',
     });
-    assert.equal((await engine.getIntake(saved.sessionId))?.status, 'complete');
+    assert.equal((await engine.getIntake(saved.sessionId))?.status, 'collected');
 
     const recall = await engine.handleMessage({
       channel: 'web',

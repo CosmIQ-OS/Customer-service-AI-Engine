@@ -256,6 +256,35 @@ export class ConversationService {
     return { message: text, delivered, conversation: (await this.get(sessionId))! };
   }
 
+  /** Deletes a sent (assistant or human) message from a conversation transcript. */
+  async deleteSentMessage(
+    sessionId: string,
+    messageId: number,
+    adminId: number | null,
+  ): Promise<{ deleted: true; id: number }> {
+    const existing = await messagesRepo.getMessageById(this.options.db, messageId);
+    if (!existing || existing.session_id !== sessionId) {
+      throw new Error('Message not found.');
+    }
+    if (existing.role === 'user') {
+      throw new Error('Only messages that we sent can be deleted.');
+    }
+    const removed = await messagesRepo.deleteSentMessage(this.options.db, sessionId, messageId);
+    if (!removed) {
+      throw new Error('Message not found.');
+    }
+    await logsRepo.createLog(this.options.db, {
+      channel: existing.channel,
+      external_user_id: existing.external_user_id,
+      session_id: sessionId,
+      direction: 'system',
+      event: 'conversation.message_deleted',
+      message: `Deleted sent (${existing.role}) message #${messageId}.`,
+      payload: { messageId, role: existing.role, adminId },
+    });
+    return { deleted: true, id: messageId };
+  }
+
   /** Closes conversations that a human left idle past the deadline. */
   async closeIdleConversations(): Promise<ConversationRecord[]> {
     const due = await conversationsRepo.listIdleConversations(this.options.db, this.sqlNow());

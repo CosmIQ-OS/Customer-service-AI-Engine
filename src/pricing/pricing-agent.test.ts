@@ -32,7 +32,7 @@ const intake: IntakeRecord = {
   service_id: 10,
   service_name: 'Workflow Automation',
   language: 'en',
-  status: 'complete',
+  status: 'collected',
   tenant_id: 'test',
   created_at: '',
   updated_at: '',

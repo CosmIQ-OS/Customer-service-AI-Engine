@@ -152,7 +152,7 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
-  const [filterMode, setFilterMode] = useState<'all' | 'website' | 'human' | 'ai'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'human' | 'ai'>('all');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -181,8 +181,11 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
   const loadList = useCallback(async () => {
     try {
       const payload = await api<{ conversations: Conversation[] }>('/api/conversations?limit=100');
-      setConversations(payload.conversations);
-      return payload.conversations;
+      const liveRows = (payload.conversations ?? []).filter(
+        (c) => (c.channel || '').toLowerCase() !== 'website',
+      );
+      setConversations(liveRows);
+      return liveRows;
     } catch (err) {
       handleError(err);
       return [];
@@ -387,9 +390,24 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
     }
   }
 
+  async function deleteSentMessage(messageId: number) {
+    if (!selected) return;
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/api/conversations/${selected}/messages/${messageId}`, { method: 'DELETE' });
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      setNotice('Sent message deleted.');
+      await loadList();
+    } catch (err) {
+      handleError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const active = conversations.find((row) => row.sessionId === selected);
   const waitingCount = conversations.filter((row) => row.status === 'open' && row.mode !== 'ai').length;
-  const websiteCount = conversations.filter((row) => row.channel?.toLowerCase() === 'website').length;
 
   const filtered = conversations.filter((c) => {
     const q = search.toLowerCase();
@@ -400,7 +418,6 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
       c.lastMessage?.toLowerCase().includes(q);
 
     if (!matchSearch) return false;
-    if (filterMode === 'website') return c.channel?.toLowerCase() === 'website';
     if (filterMode === 'human') return c.mode === 'human' || c.mode === 'paused';
     if (filterMode === 'ai') return c.mode === 'ai';
     return true;
@@ -453,14 +470,6 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
                 onClick={() => setFilterMode('all')}
               >
                 ALL ({conversations.length})
-              </button>
-              <button
-                type="button"
-                className={`inbox-filter-btn ${filterMode === 'website' ? 'active' : ''}`}
-                onClick={() => setFilterMode('website')}
-                style={filterMode === 'website' ? { background: '#2563eb', color: '#fff', borderColor: '#1d4ed8' } : {}}
-              >
-                🌐 WEBSITE ({websiteCount})
               </button>
               <button
                 type="button"
@@ -613,6 +622,20 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
                             </span>
                             <span>//</span>
                             <span>{fmtTime(m.created_at)}</span>
+                            {!isUser && (
+                              <>
+                                <span>//</span>
+                                <button
+                                  type="button"
+                                  className="msg-delete-btn"
+                                  disabled={busy}
+                                  onClick={() => deleteSentMessage(m.id)}
+                                  title="Delete this sent message"
+                                >
+                                  DELETE
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
                       );

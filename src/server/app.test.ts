@@ -146,14 +146,31 @@ describe('admin API protection', () => {
 
     const res = await fetch(`${harness.base}/api/intakes`, { headers: { cookie } });
     assert.equal(res.status, 200);
-    const rows = await res.json() as Array<{ external_user_id: string; company_name: string; company_size: string; status: string }>;
+    const rows = await res.json() as Array<{ id: number; external_user_id: string; company_name: string; company_size: string; status: string }>;
     const row = rows.find((record) => record.external_user_id === 'api-intake-user');
     assert.equal(row?.company_name, 'API Co');
     assert.equal(row?.company_size, '40 people');
-    assert.equal(row?.status, 'complete');
+    assert.equal(row?.status, 'collected');
+
+    for (const nextStatus of ['quoted', 'deal_won', 'completed'] as const) {
+      const patchRes: Response = await fetch(`${harness.base}/api/intakes/${row!.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', cookie },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      assert.equal(patchRes.status, 200);
+      assert.equal(((await patchRes.json()) as { status: string }).status, nextStatus);
+    }
+
+    const badStatus = await fetch(`${harness.base}/api/intakes/${row!.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ status: 'bogus_status' }),
+    });
+    assert.equal(badStatus.status, 400);
   });
 
-  it('lets an admin take over a conversation, reply, and hand it back', async () => {
+  it('lets an admin take over a conversation, reply, delete sent messages, and hand it back', async () => {
     const cookie = extractCookie((await login(harness.base, 'owner', PASSWORD)).headers.get('set-cookie') ?? '');
     const sim = await fetch(`${harness.base}/api/chat/simulate`, {
       method: 'POST',
@@ -182,8 +199,38 @@ describe('admin API protection', () => {
     assert.equal(reply.status, 200);
 
     const messages = await fetch(`${harness.base}/api/conversations/${sessionId}/messages`, { headers: { cookie } });
-    const thread = (await messages.json()) as { messages: Array<{ role: string; content: string }> };
-    assert.ok(thread.messages.some((message) => message.role === 'human'));
+    const thread = (await messages.json()) as { messages: Array<{ id: number; role: string; content: string }> };
+    const userMsg = thread.messages.find((message) => message.role === 'user');
+    const aiMsg = thread.messages.find((message) => message.role === 'assistant');
+    const humanMsg = thread.messages.find((message) => message.role === 'human');
+    assert.ok(userMsg);
+    assert.ok(aiMsg);
+    assert.ok(humanMsg);
+
+    // Cannot delete customer (user) message
+    const delUser = await fetch(`${harness.base}/api/conversations/${sessionId}/messages/${userMsg.id}`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+    assert.equal(delUser.status, 422);
+
+    // Can delete sent human and assistant messages
+    const delHuman = await fetch(`${harness.base}/api/conversations/${sessionId}/messages/${humanMsg.id}`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+    assert.equal(delHuman.status, 200);
+
+    const delAi = await fetch(`${harness.base}/api/conversations/${sessionId}/messages/${aiMsg.id}`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+    assert.equal(delAi.status, 200);
+
+    const afterDelete = await fetch(`${harness.base}/api/conversations/${sessionId}/messages`, { headers: { cookie } });
+    const remaining = ((await afterDelete.json()) as { messages: Array<{ id: number; role: string }> }).messages;
+    assert.equal(remaining.some((m) => m.id === humanMsg.id || m.id === aiMsg.id), false);
+    assert.equal(remaining.some((m) => m.id === userMsg.id), true);
 
     const handBack = await fetch(`${harness.base}/api/conversations/${sessionId}/handback`, {
       method: 'POST',

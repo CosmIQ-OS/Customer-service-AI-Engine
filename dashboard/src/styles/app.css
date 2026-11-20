@@ -1560,6 +1560,30 @@ tr:hover td {
   letter-spacing: 0.05em;
 }
 
+.msg-delete-btn {
+  background: transparent;
+  border: 0;
+  padding: 0 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s var(--ease);
+}
+
+.msg-delete-btn:hover:not(:disabled) {
+  color: var(--status-danger);
+  text-decoration: underline;
+}
+
+.msg-delete-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* Chat Composer */
 .chat-composer-box {
   padding: 12px 18px;
@@ -1706,4 +1730,100 @@ tr:hover td {
   margin: 0;
   font-size: 0.88rem;
   color: var(--text-secondary);
+}
+
+/* Lead Inbox Filters & Interactive Status Selector */
+.lead-filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+}
+
+.lead-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.lead-filter-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  min-width: 78px;
+}
+
+.lead-status-select {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 8px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+
+.lead-status-select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.lead-status-select:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.lead-status-select.status-collecting {
+  border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent);
+  color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-elevated));
+}
+
+.lead-status-select.status-collected {
+  border-color: color-mix(in srgb, #2563eb 45%, transparent);
+  color: #2563eb;
+  background: color-mix(in srgb, #2563eb 10%, var(--bg-elevated));
+}
+
+[data-theme='dark'] .lead-status-select.status-collected {
+  color: #60a5fa;
+  border-color: color-mix(in srgb, #3b82f6 50%, transparent);
+  background: color-mix(in srgb, #3b82f6 16%, var(--bg-elevated));
+}
+
+.lead-status-select.status-quoted {
+  border-color: color-mix(in srgb, var(--orange-500) 55%, transparent);
+  color: var(--orange-600);
+  background: color-mix(in srgb, var(--orange-500) 14%, var(--bg-elevated));
+}
+
+[data-theme='dark'] .lead-status-select.status-quoted {
+  color: #fb923c;
+}
+
+.lead-status-select.status-deal_won {
+  border-color: color-mix(in srgb, #0d9488 50%, transparent);
+  color: #0f766e;
+  background: color-mix(in srgb, #0d9488 12%, var(--bg-elevated));
+}
+
+[data-theme='dark'] .lead-status-select.status-deal_won {
+  color: #2dd4bf;
+}
+
+.lead-status-select.status-completed {
+  border-color: color-mix(in srgb, var(--status-success) 45%, transparent);
+  color: var(--status-success);
+  background: color-mix(in srgb, var(--status-success) 12%, var(--bg-elevated));
 }

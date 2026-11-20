@@ -12,11 +12,55 @@ import { ServiceSettingsModal } from './ServiceSettingsModal';
 type AnyRow = Record<string, any>;
 type TabKey = 'overview' | 'inbox' | 'intakes' | 'quotes' | 'services' | 'logs';
 type ThemeMode = 'light' | 'dark';
+type IntakeDateFilter = 'all' | 'today' | 'yesterday' | '7d' | 'month';
+type IntakeStatusFilter = 'all' | 'collecting' | 'collected' | 'quoted' | 'deal_won' | 'completed';
+
+const LEAD_STATUS_OPTIONS = [
+  { value: 'collecting', label: 'COLLECTING', tone: 'acc' as const },
+  { value: 'collected', label: 'COLLECTED', tone: 'sky' as const },
+  { value: 'quoted', label: 'QUOTE GIVEN', tone: 'orange' as const },
+  { value: 'deal_won', label: 'AFTER DEAL', tone: 'emerald' as const },
+  { value: 'completed', label: 'COMPLETED', tone: 'ok' as const },
+] as const;
+
+function normalizeLeadStatus(status?: string): string {
+  return status === 'complete' ? 'collected' : (status || 'collecting');
+}
+
+function parseUtcTimestamp(v?: string): Date | null {
+  if (!v) return null;
+  const d = new Date(v.includes('Z') ? v : v.replace(' ', 'T') + 'Z');
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function matchesIntakeDateFilter(row: AnyRow, filter: IntakeDateFilter): boolean {
+  if (filter === 'all') return true;
+  const d = parseUtcTimestamp(row.created_at || row.updated_at);
+  if (!d) return false;
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (filter === 'today') return d >= startOfToday;
+  if (filter === 'yesterday') {
+    const startOfYesterday = new Date(startOfToday);
+    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+    return d >= startOfYesterday && d < startOfToday;
+  }
+  if (filter === '7d') {
+    const sevenDaysAgo = new Date(startOfToday);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    return d >= sevenDaysAgo;
+  }
+  if (filter === 'month') {
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    return d >= startOfMonth;
+  }
+  return true;
+}
 
 function fmtTime(v?: string) {
   if (!v) return '';
-  const d = new Date(v.includes('Z') ? v : v.replace(' ', 'T') + 'Z');
-  return isNaN(d.getTime())
+  const d = parseUtcTimestamp(v);
+  return !d
     ? v
     : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
@@ -60,6 +104,9 @@ export function App() {
 
   const [intakeSearch, setIntakeSearch] = useState('');
   const [intakeChannelFilter, setIntakeChannelFilter] = useState<'all' | 'website' | 'whatsapp' | 'telegram'>('all');
+  const [intakeDateFilter, setIntakeDateFilter] = useState<IntakeDateFilter>('all');
+  const [intakeStatusFilter, setIntakeStatusFilter] = useState<IntakeStatusFilter>('all');
+  const [updatingLeadId, setUpdatingLeadId] = useState<number | null>(null);
   const [logFilter, setLogFilter] = useState<'all' | 'inbound' | 'outbound' | 'system'>('all');
 
   const [showServiceModal, setShowServiceModal] = useState(false);
@@ -93,6 +140,23 @@ export function App() {
       load(false);
     } catch (err: any) {
       setError(err instanceof Error ? err.message : 'Could not delete service');
+    }
+  }
+
+  async function updateLeadStatus(id: number, status: string) {
+    setUpdatingLeadId(id);
+    setError('');
+    try {
+      const updated = await api<AnyRow>(`/api/intakes/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      });
+      setIntakes((prev) => prev.map((row) => (row.id === id ? { ...row, ...updated } : row)));
+      load(false);
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : 'Could not update lead status');
+    } finally {
+      setUpdatingLeadId(null);
     }
   }
 
@@ -201,9 +265,15 @@ export function App() {
   const websiteIntakesCount = intakes.filter((i) => i.channel?.toLowerCase() === 'website').length;
   const whatsappIntakesCount = intakes.filter((i) => i.channel?.toLowerCase() === 'whatsapp').length;
   const telegramIntakesCount = intakes.filter((i) => i.channel?.toLowerCase() === 'telegram').length;
+  const todaysIntakesCount = intakes.filter((i) => matchesIntakeDateFilter(i, 'today')).length;
+  const hasActiveIntakeFilters =
+    Boolean(intakeSearch.trim()) ||
+    intakeChannelFilter !== 'all' ||
+    intakeDateFilter !== 'all' ||
+    intakeStatusFilter !== 'all';
 
   const filteredIntakes = intakes.filter((row) => {
-    const q = intakeSearch.toLowerCase();
+    const q = intakeSearch.toLowerCase().trim();
     const matchSearch =
       !q ||
       row.company_name?.toLowerCase().includes(q) ||
@@ -212,9 +282,9 @@ export function App() {
       row.external_user_id?.toLowerCase().includes(q);
 
     if (!matchSearch) return false;
-    if (intakeChannelFilter !== 'all') {
-      return row.channel?.toLowerCase() === intakeChannelFilter;
-    }
+    if (intakeChannelFilter !== 'all' && row.channel?.toLowerCase() !== intakeChannelFilter) return false;
+    if (intakeStatusFilter !== 'all' && normalizeLeadStatus(row.status) !== intakeStatusFilter) return false;
+    if (!matchesIntakeDateFilter(row, intakeDateFilter)) return false;
     return true;
   });
 
@@ -224,7 +294,7 @@ export function App() {
   });
 
   const availableServicesCount = summary?.counts?.availableServices ?? services.filter((s) => s.status === 'available').length;
-  const completeIntakesCount = summary?.counts?.completeIntakes ?? intakes.filter((i) => i.status === 'complete').length;
+  const completeIntakesCount = summary?.counts?.completeIntakes ?? intakes.filter((i) => normalizeLeadStatus(i.status) !== 'collecting').length;
 
   return (
     <div className="app">
@@ -359,7 +429,7 @@ export function App() {
               </div>
               <div className="stat-value ok">{summary?.counts?.intakes ?? intakes.length}</div>
               <div className="stat-subtext">
-                {completeIntakesCount} qualified {completeIntakesCount === 1 ? 'lead' : 'leads'} completed
+                {completeIntakesCount} qualified {completeIntakesCount === 1 ? 'lead' : 'leads'} collected
               </div>
             </div>
 
@@ -419,26 +489,41 @@ export function App() {
                   </div>
                 ) : (
                   <div className="stack" style={{ gap: 10, flex: 1 }}>
-                    {intakes.slice(0, 4).map((item, idx) => (
-                      <div key={item.id ?? idx} className="list-row" style={{ flexDirection: 'column', gap: 6 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 12 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <Pill tone={item.channel === 'website' ? 'website' : item.channel === 'whatsapp' ? 'whatsapp' : 'telegram'}>
-                              {item.channel === 'website' ? '🌐 WEB' : item.channel?.toUpperCase()}
-                            </Pill>
-                            <strong>{item.company_name || 'Prospect Lead'}</strong>
+                    {intakes.slice(0, 4).map((item, idx) => {
+                      const currentStatus = normalizeLeadStatus(item.status);
+                      return (
+                        <div key={item.id ?? idx} className="list-row" style={{ flexDirection: 'column', gap: 6 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 12 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <Pill tone={item.channel === 'website' ? 'website' : item.channel === 'whatsapp' ? 'whatsapp' : 'telegram'}>
+                                {item.channel === 'website' ? '🌐 WEB' : item.channel?.toUpperCase()}
+                              </Pill>
+                              <strong>{item.company_name || 'Prospect Lead'}</strong>
+                            </div>
+                            <select
+                              aria-label={`Lead status for ${item.company_name || item.external_user_id}`}
+                              className={`lead-status-select status-${currentStatus}`}
+                              value={currentStatus}
+                              disabled={updatingLeadId === item.id}
+                              onChange={(e) => updateLeadStatus(item.id, e.target.value)}
+                            >
+                              {LEAD_STATUS_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
                           </div>
-                          <Pill tone={item.status === 'complete' ? 'ok' : 'acc'}>{item.status}</Pill>
+                          <div className="mono muted" style={{ fontSize: '11px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            <span>SIZE: {item.company_size || '—'}</span>
+                            <span>//</span>
+                            <span>TOOLS: {item.current_tools || '—'}</span>
+                            <span>//</span>
+                            <span className="claim">{item.service_name || '—'}</span>
+                          </div>
                         </div>
-                        <div className="mono muted" style={{ fontSize: '11px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          <span>SIZE: {item.company_size || '—'}</span>
-                          <span>//</span>
-                          <span>TOOLS: {item.current_tools || '—'}</span>
-                          <span>//</span>
-                          <span className="claim">{item.service_name || '—'}</span>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </section>
@@ -456,73 +541,157 @@ export function App() {
           <div className="panel-title">
             <strong>Qualified Client Leads (Service Intakes)</strong>
             <Pill tone="ok">
-              {completeIntakesCount} COMPLETE / {intakes.length} TOTAL
+              {completeIntakesCount} COLLECTED+ / {intakes.length} TOTAL
             </Pill>
           </div>
           <p className="sub">
-            Structured company, team size, tooling stack, and requested service records captured conversationally.
+            Structured company, team size, tooling stack, and requested service records captured conversationally or via website forms.
           </p>
 
-          <div className="search-bar">
+          <div className="search-bar" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
             <input
               className="search-input"
               placeholder="Filter by company, service, tools, or phone ID…"
               value={intakeSearch}
               onChange={(e) => setIntakeSearch(e.target.value)}
             />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span className="mono muted" style={{ fontSize: '11px' }}>
+                SHOWING {filteredIntakes.length} OF {intakes.length} LEADS
+              </span>
+              {hasActiveIntakeFilters && (
+                <button
+                  type="button"
+                  className="btn secondary btn-sm"
+                  onClick={() => {
+                    setIntakeSearch('');
+                    setIntakeChannelFilter('all');
+                    setIntakeDateFilter('all');
+                    setIntakeStatusFilter('all');
+                  }}
+                >
+                  CLEAR FILTERS
+                </button>
+              )}
+            </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, margin: '10px 0 16px', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              className={`btn ${intakeChannelFilter === 'all' ? 'primary' : 'secondary'}`}
-              style={{ minHeight: 28, fontSize: '11px', padding: '0 12px' }}
-              onClick={() => setIntakeChannelFilter('all')}
-            >
-              ALL LEADS ({intakes.length})
-            </button>
-            <button
-              type="button"
-              className={`btn ${intakeChannelFilter === 'website' ? 'primary' : 'secondary'}`}
-              style={{ minHeight: 28, fontSize: '11px', padding: '0 12px', background: intakeChannelFilter === 'website' ? '#2563eb' : undefined, borderColor: '#2563eb', color: intakeChannelFilter === 'website' ? '#fff' : undefined }}
-              onClick={() => setIntakeChannelFilter('website')}
-            >
-              🌐 WEBSITE LEADS ({websiteIntakesCount})
-            </button>
-            <button
-              type="button"
-              className={`btn ${intakeChannelFilter === 'whatsapp' ? 'primary' : 'secondary'}`}
-              style={{ minHeight: 28, fontSize: '11px', padding: '0 12px' }}
-              onClick={() => setIntakeChannelFilter('whatsapp')}
-            >
-              WHATSAPP ({whatsappIntakesCount})
-            </button>
-            <button
-              type="button"
-              className={`btn ${intakeChannelFilter === 'telegram' ? 'primary' : 'secondary'}`}
-              style={{ minHeight: 28, fontSize: '11px', padding: '0 12px' }}
-              onClick={() => setIntakeChannelFilter('telegram')}
-            >
-              TELEGRAM ({telegramIntakesCount})
-            </button>
+          <div className="lead-filter-bar">
+            <div className="lead-filter-group">
+              <span className="lead-filter-label">TIME //</span>
+              {([
+                { value: 'all', label: `ALL TIME (${intakes.length})` },
+                { value: 'today', label: `📅 TODAY'S LEADS (${todaysIntakesCount})` },
+                { value: 'yesterday', label: 'YESTERDAY' },
+                { value: '7d', label: 'LAST 7 DAYS' },
+                { value: 'month', label: 'THIS MONTH' },
+              ] as const).map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  className={`btn ${intakeDateFilter === item.value ? 'primary' : 'secondary'}`}
+                  style={{ minHeight: 28, fontSize: '11px', padding: '0 10px' }}
+                  onClick={() => setIntakeDateFilter(item.value)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="lead-filter-group">
+              <span className="lead-filter-label">STAGE //</span>
+              <button
+                type="button"
+                className={`btn ${intakeStatusFilter === 'all' ? 'primary' : 'secondary'}`}
+                style={{ minHeight: 28, fontSize: '11px', padding: '0 10px' }}
+                onClick={() => setIntakeStatusFilter('all')}
+              >
+                ALL STATUSES
+              </button>
+              {LEAD_STATUS_OPTIONS.map((opt) => {
+                const count = intakes.filter((i) => normalizeLeadStatus(i.status) === opt.value).length;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    className={`btn ${intakeStatusFilter === opt.value ? 'primary' : 'secondary'}`}
+                    style={{ minHeight: 28, fontSize: '11px', padding: '0 10px' }}
+                    onClick={() => setIntakeStatusFilter(opt.value)}
+                  >
+                    {opt.label} ({count})
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="lead-filter-group">
+              <span className="lead-filter-label">CHANNEL //</span>
+              <button
+                type="button"
+                className={`btn ${intakeChannelFilter === 'all' ? 'primary' : 'secondary'}`}
+                style={{ minHeight: 28, fontSize: '11px', padding: '0 10px' }}
+                onClick={() => setIntakeChannelFilter('all')}
+              >
+                ALL CHANNELS ({intakes.length})
+              </button>
+              <button
+                type="button"
+                className={`btn ${intakeChannelFilter === 'website' ? 'primary' : 'secondary'}`}
+                style={{ minHeight: 28, fontSize: '11px', padding: '0 10px', background: intakeChannelFilter === 'website' ? '#2563eb' : undefined, borderColor: '#2563eb', color: intakeChannelFilter === 'website' ? '#fff' : undefined }}
+                onClick={() => setIntakeChannelFilter('website')}
+              >
+                🌐 WEBSITE LEADS ({websiteIntakesCount})
+              </button>
+              <button
+                type="button"
+                className={`btn ${intakeChannelFilter === 'whatsapp' ? 'primary' : 'secondary'}`}
+                style={{ minHeight: 28, fontSize: '11px', padding: '0 10px' }}
+                onClick={() => setIntakeChannelFilter('whatsapp')}
+              >
+                WHATSAPP ({whatsappIntakesCount})
+              </button>
+              <button
+                type="button"
+                className={`btn ${intakeChannelFilter === 'telegram' ? 'primary' : 'secondary'}`}
+                style={{ minHeight: 28, fontSize: '11px', padding: '0 10px' }}
+                onClick={() => setIntakeChannelFilter('telegram')}
+              >
+                TELEGRAM ({telegramIntakesCount})
+              </button>
+            </div>
           </div>
 
           <Table
             cols={['Channel', 'Client ID', 'Company', 'Size', 'Tools Stack', 'Requested Service', 'Lang', 'Status', 'Updated']}
             rows={filteredIntakes}
-            render={(r) => [
-              <Pill tone={r.channel === 'website' ? 'website' : r.channel === 'whatsapp' ? 'whatsapp' : 'telegram'}>
-                {r.channel === 'website' ? '🌐 WEBSITE' : r.channel?.toUpperCase()}
-              </Pill>,
-              <span className="mono">{r.external_user_id}</span>,
-              <strong>{r.company_name || '—'}</strong>,
-              <span className="mono small">{r.company_size || '—'}</span>,
-              <span className="small">{r.current_tools || '—'}</span>,
-              <span className="small claim" style={{ fontWeight: 600 }}>{r.service_name || '—'}</span>,
-              <Pill>{r.language || 'en'}</Pill>,
-              <Pill tone={r.status === 'complete' ? 'ok' : 'acc'}>{r.status}</Pill>,
-              <span className="mono muted">{fmtTime(r.updated_at)}</span>,
-            ]}
+            render={(r) => {
+              const currentStatus = normalizeLeadStatus(r.status);
+              return [
+                <Pill tone={r.channel === 'website' ? 'website' : r.channel === 'whatsapp' ? 'whatsapp' : 'telegram'}>
+                  {r.channel === 'website' ? '🌐 WEBSITE' : r.channel?.toUpperCase()}
+                </Pill>,
+                <span className="mono">{r.external_user_id}</span>,
+                <strong>{r.company_name || '—'}</strong>,
+                <span className="mono small">{r.company_size || '—'}</span>,
+                <span className="small">{r.current_tools || '—'}</span>,
+                <span className="small claim" style={{ fontWeight: 600 }}>{r.service_name || '—'}</span>,
+                <Pill>{r.language || 'en'}</Pill>,
+                <select
+                  aria-label={`Lead status for ${r.company_name || r.external_user_id}`}
+                  className={`lead-status-select status-${currentStatus}`}
+                  value={currentStatus}
+                  disabled={updatingLeadId === r.id}
+                  onChange={(e) => updateLeadStatus(r.id, e.target.value)}
+                >
+                  {LEAD_STATUS_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>,
+                <span className="mono muted">{fmtTime(r.updated_at)}</span>,
+              ];
+            }}
           />
         </section>
       )}

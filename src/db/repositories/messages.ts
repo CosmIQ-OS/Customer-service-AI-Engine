@@ -47,6 +47,25 @@ export async function listMessages(db: DBExecutor, sessionId: string, limit = 10
   return rows.map(map).reverse();
 }
 
+export async function getMessageById(db: DBExecutor, id: number): Promise<MessageRecord | undefined> {
+  const row = await db.queryOne<MessageRecord>('SELECT * FROM messages WHERE id = $1', [id]);
+  return row ? map(row) : undefined;
+}
+
+export async function deleteSentMessage(
+  db: DBExecutor,
+  sessionId: string,
+  messageId: number,
+): Promise<MessageRecord | undefined> {
+  const row = await db.queryOne<MessageRecord>(
+    `DELETE FROM messages
+     WHERE id = $1 AND session_id = $2 AND role IN ('human', 'assistant')
+     RETURNING *`,
+    [messageId, sessionId],
+  );
+  return row ? map(row) : undefined;
+}
+
 /** Keeps a caller-supplied limit inside a sane range. */
 function clampLimit(limit: number): number {
   if (!Number.isFinite(limit)) return 100;

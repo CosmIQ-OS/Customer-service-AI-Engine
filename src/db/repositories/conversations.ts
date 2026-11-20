@@ -124,7 +124,7 @@ export async function updateConversation(
 
 export async function listConversations(db: DBExecutor, limit = 100): Promise<ConversationRecord[]> {
   const { rows } = await db.query<ConversationRecord>(
-    'SELECT * FROM conversations ORDER BY updated_at DESC LIMIT $1',
+    "SELECT * FROM conversations WHERE LOWER(channel) <> 'website' ORDER BY updated_at DESC LIMIT $1",
     [Math.min(Math.max(limit, 1), 500)],
   );
   return rows.map(map);
@@ -143,7 +143,7 @@ export async function listIdleConversations(db: DBExecutor, now: string): Promis
 
 export async function countOpenConversations(db: DBExecutor): Promise<number> {
   const row = await db.queryOne<{ count: number }>(
-    "SELECT COUNT(*)::int AS count FROM conversations WHERE status = 'open' AND mode <> 'ai'",
+    "SELECT COUNT(*)::int AS count FROM conversations WHERE status = 'open' AND mode <> 'ai' AND LOWER(channel) <> 'website'",
   );
   return Number(row?.count ?? 0);
 }

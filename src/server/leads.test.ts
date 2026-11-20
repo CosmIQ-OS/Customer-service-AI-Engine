@@ -64,13 +64,20 @@ describe('website leads API', () => {
     assert.ok(body.sessionId);
     assert.ok(body.intakeId);
 
-    // Verify it appears in intakes
+    // Verify it appears in intakes with status 'collected'
     const intakes = await engine.listIntakes();
     const found = intakes.find((i) => i.company_name === 'Nexus Dynamics');
     assert.ok(found);
     assert.equal(found.channel, 'website');
-    assert.equal(found.status, 'complete');
+    assert.equal(found.status, 'collected');
     assert.equal(found.company_size, '10-20');
+
+    // Verify website lead does NOT appear in Live Inbox conversations
+    const conversations = await engine.listConversations();
+    assert.equal(
+      conversations.some((c) => c.sessionId === body.sessionId || c.channel === 'website'),
+      false,
+    );
 
     // Verify notification was recorded
     const notifs = await engine.listNotifications();

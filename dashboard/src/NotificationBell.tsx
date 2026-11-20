@@ -28,6 +28,7 @@ function fmtTime(v?: string | null): string {
 function kindLabel(kind: string): string {
   if (kind === 'quote_realert') return 'reminder';
   if (kind === 'conversation_message') return 'inbox';
+  if (kind === 'website_lead') return 'lead';
   return 'approval';
 }
 
@@ -36,7 +37,7 @@ export function NotificationBell({
   onNavigate,
 }: {
   refreshKey?: number;
-  onNavigate?: (tab: 'quotes' | 'inbox') => void;
+  onNavigate?: (tab: 'quotes' | 'inbox' | 'intakes') => void;
 }) {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -93,6 +94,7 @@ export function NotificationBell({
     }
     if (onNavigate) {
       if (item.kind === 'conversation_message') onNavigate('inbox');
+      else if (item.kind === 'website_lead') onNavigate('intakes');
       else if (item.quote_id !== null) onNavigate('quotes');
       setOpen(false);
     }

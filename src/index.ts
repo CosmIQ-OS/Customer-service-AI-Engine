@@ -245,8 +245,8 @@ async function seedCosmiqPriceTables(engine: SupportEngine) {
     }
   }
 
-  // Backfill quotes for any completed intake that doesn't have a quote yet
-  const completedIntakes = (await engine.listIntakes()).filter((intake) => intake.status === 'complete');
+  // Backfill quotes for any collected intake that doesn't have a quote yet
+  const completedIntakes = (await engine.listIntakes()).filter((intake) => intake.status !== 'collecting');
   for (const intake of completedIntakes) {
     const existing = await engine.getLatestQuote(intake.session_id);
     if (!existing) {

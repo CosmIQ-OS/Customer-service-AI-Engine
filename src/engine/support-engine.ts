@@ -13,6 +13,7 @@ import * as quotesRepo from '../db/repositories/quotes.js';
 import type { QuoteRecord } from '../db/repositories/quotes.js';
 import * as settingsRepo from '../db/repositories/settings.js';
 import * as notificationsRepo from '../db/repositories/notifications.js';
+import { isIntakeReady, type IntakeStatus } from '../intake/intake.js';
 import { detectLanguage } from '../intake/language.js';
 import { PricingAgent } from '../pricing/pricing-agent.js';
 import { QuoteBuilder, type BuiltQuote } from '../pricing/quote-builder.js';
@@ -94,6 +95,21 @@ export class SupportEngine {
   listTraces(limit?: number) { return tracesRepo.listTraces(this.db, limit); }
   listIntakes(limit?: number) { return intakeRepo.listIntakes(this.db, limit); }
   getIntake(sessionId: string) { return intakeRepo.getIntake(this.db, sessionId); }
+  async updateIntakeStatus(id: number, status: IntakeStatus, adminId: number | null = null) {
+    const updated = await intakeRepo.updateIntakeStatus(this.db, id, status);
+    if (updated) {
+      await logsRepo.createLog(this.db, {
+        channel: updated.channel,
+        external_user_id: updated.external_user_id,
+        session_id: updated.session_id,
+        direction: 'system',
+        event: 'intake.status_updated',
+        message: `Lead #${updated.id} (${updated.company_name || updated.external_user_id}) status updated to ${status}.`,
+        payload: { intakeId: updated.id, status, adminId },
+      });
+    }
+    return updated;
+  }
   listQuotes(limit?: number) { return quotesRepo.listQuotes(this.db, limit); }
   async getQuote(id: number) {
     const quote = await quotesRepo.getQuote(this.db, id);
@@ -116,8 +132,13 @@ export class SupportEngine {
   updateSettings(patch: Parameters<typeof settingsRepo.updateSettings>[1], adminId: number | null) {
     return settingsRepo.updateSettings(this.db, patch, adminId);
   }
-  createProposal(input: quotesRepo.ProposalInput) {
-    return quotesRepo.createProposal(this.db, input);
+  async createProposal(input: quotesRepo.ProposalInput) {
+    const created = await quotesRepo.createProposal(this.db, input);
+    await intakeRepo.advanceIntakeToQuoted(this.db, {
+      intakeId: input.intakeId,
+      sessionId: input.sessionId,
+    });
+    return created;
   }
 
   async recordWebsiteLead(input: {
@@ -195,18 +216,8 @@ export class SupportEngine {
         body: `${input.contact_person || 'Website visitor'} submitted lead inquiry for ${input.service_name || 'Services'}.`,
       });
 
-      return { sessionId, intakeId: intake.id, session };
+      return { sessionId, intakeId: intake.id };
     });
-
-    try {
-      await this.conversations.recordInbound(
-        result.session,
-        summaryText,
-        input.company_name ? `${input.company_name} (Website Lead)` : (input.contact_person || 'Website Lead')
-      );
-    } catch (convErr) {
-      console.warn('[website-lead] Could not register conversation thread:', convErr);
-    }
 
     return { sessionId: result.sessionId, intakeId: result.intakeId };
   }
@@ -215,7 +226,7 @@ export class SupportEngine {
   async buildQuoteForSession(sessionId: string, options: { force?: boolean } = {}): Promise<BuiltQuote> {
     const intake = await intakeRepo.getIntake(this.db, sessionId);
     if (!intake) throw new Error('No intake found for this session.');
-    if (intake.status !== 'complete') throw new Error('The intake is not complete yet.');
+    if (!isIntakeReady(intake.status)) throw new Error('The intake is not collected yet.');
 
     if (!options.force) {
       const existing = await quotesRepo.latestQuoteForSession(this.db, sessionId);
@@ -293,6 +304,9 @@ export class SupportEngine {
       this.deliverToCustomer(channel, externalUserId, body),
     );
   }
+  deleteSentMessage(sessionId: string, messageId: number, adminId: number | null) {
+    return this.conversations.deleteSentMessage(sessionId, messageId, adminId);
+  }
   closeIdleConversations() { return this.conversations.closeIdleConversations(); }
 
   /** Broadcasts an operational alert to every channel that supports operator alerts. */
@@ -365,6 +379,10 @@ export class SupportEngine {
     const items = await quotesRepo.listQuoteItems(this.db, id);
     const message = approvedQuoteMessage(quote, items);
     const delivered = await this.deliverQuoteMessage(quote, message, 'quote.delivered');
+    await intakeRepo.advanceIntakeToQuoted(this.db, {
+      intakeId: quote.intake_id,
+      sessionId: quote.session_id,
+    });
     return { quote: (await quotesRepo.getQuote(this.db, id)) ?? quote, items, message, delivered };
   }
 
@@ -498,7 +516,7 @@ export class SupportEngine {
       const response = await this.completeTurn(session, msg, result, startedAt);
 
       const intake = await intakeRepo.getIntake(this.db, session.id);
-      if (intake?.status === 'complete') {
+      if (intake && isIntakeReady(intake.status)) {
         const existing = await quotesRepo.latestQuoteForSession(this.db, session.id);
         if (existing) {
           response.data = { ...response.data, quoteId: existing.id, quoteNumber: existing.quote_number };

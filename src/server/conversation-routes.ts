@@ -72,5 +72,20 @@ export function createConversationRouter(engine: SupportEngine): Router {
     }
   }));
 
+  router.delete('/conversations/:id/messages/:messageId', asyncHandler(async (req, res) => {
+    const messageId = Number(req.params.messageId);
+    if (!Number.isInteger(messageId) || messageId <= 0) {
+      return res.status(400).json({ error: 'Invalid message id' });
+    }
+    const admin = res.locals.admin;
+    try {
+      const result = await engine.deleteSentMessage(req.params.id, messageId, admin?.id ?? null);
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not delete the message.';
+      res.status(/not found/i.test(message) ? 404 : 422).json({ error: message });
+    }
+  }));
+
   return router;
 }
