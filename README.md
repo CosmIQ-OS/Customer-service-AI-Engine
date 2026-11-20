@@ -11,17 +11,17 @@ license: apache-2.0
 
 # Business Support AI Engine
 
-A modular AI customer-service engine for chat channels such as **WhatsApp** and **Telegram**. It combines an OpenAI-compatible LLM, a bounded agent loop, support tools, SQLite persistence, conversation transcripts, execution traces, and a minimal React dashboard.
+A modular AI customer-service engine for chat channels such as **WhatsApp** and **Telegram**. It combines an OpenAI-compatible LLM, a bounded agent loop, support tools, **PostgreSQL persistence (Neon in production, embedded PGlite locally)**, conversation transcripts, execution traces, and a React dashboard.
 
 The default `mock` provider runs locally without credentials. Configure any OpenAI-compatible `/v1/chat/completions` endpoint for live AI responses.
 
-> 📖 **Recent Changes & Team Guide:** See [CHANGES_SUMMARY.md](./CHANGES_SUMMARY.md) for a plain-English breakdown of recent upgrades, WhatsApp tool fixes, and auto-pricing features.
+> 📖 **Recent Changes & Team Guide:** See [CHANGES_SUMMARY.md](./CHANGES_SUMMARY.md) for a plain-English breakdown of recent upgrades, WhatsApp tool fixes, auto-pricing features, and the PostgreSQL (Neon) migration.
 
 ## Architecture
 
 ```text
 src/
-  config/                 # Zod-validated environment configuration
+  config/                 # Zod-validated environment configuration (DATABASE_URL, LLM, channels)
   llm/                    # Provider contract, OpenAI-compatible client, mock, prompts
   kernel/                 # Agent loop, context builder, tool registry
   tools/                  # Services, FAQs, requests, profile, intake, escalation
@@ -32,12 +32,15 @@ src/
   engine/                 # Channel-agnostic orchestration and session store
   adapters/               # Telegram and WhatsApp channel adapters
   db/
-    schema.sql            # Base SQLite schema (WAL, indexes)
-    migrations/           # Ordered, idempotent schema upgrades
-    repositories/         # Data access for all persisted records
+    database.ts           # PostgreSQL driver (pg Pool for Neon/external Postgres, PGlite locally)
+    schema.sql            # Base PostgreSQL schema & indexes
+    migrations/           # Ordered, idempotent PostgreSQL schema upgrades (advisory-locked)
+    repositories/         # Async data access for all persisted records
+  cli/
+    migrate-sqlite.ts     # Idempotent SQLite -> PostgreSQL/Neon data migration utility
   server/app.ts           # REST API + optional dashboard static hosting
 dashboard/                # Vite + React dashboard
-data/                     # SQLite DB files (created at runtime)
+data/                     # Local PGlite Postgres data (used only when DATABASE_URL is unset)
 ```
 
 ### Agent flow

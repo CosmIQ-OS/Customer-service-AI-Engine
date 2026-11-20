@@ -1,51 +1,69 @@
-import type { DB } from '../database.js';
+import { UTC_NOW_SQL, type DBExecutor } from '../database.js';
 import type { ServiceRecord } from '../../engine/types.js';
 import { parseJson } from './common.js';
 
 type Row = Omit<ServiceRecord, 'metadata'> & { metadata: string };
 
 function map(row: Row): ServiceRecord {
-  return { ...row, metadata: parseJson(row.metadata, {}) };
+  return { ...row, id: Number(row.id), metadata: parseJson(row.metadata, {}) };
 }
 
-export function listServices(db: DB): ServiceRecord[] {
-  return (db.prepare('SELECT * FROM services ORDER BY updated_at DESC, id DESC').all() as Row[]).map(map);
+export async function listServices(db: DBExecutor): Promise<ServiceRecord[]> {
+  const { rows } = await db.query<Row>('SELECT * FROM services ORDER BY updated_at DESC, id DESC');
+  return rows.map(map);
 }
 
-export function getService(db: DB, id: number): ServiceRecord | undefined {
-  const row = db.prepare('SELECT * FROM services WHERE id = ?').get(id) as Row | undefined;
+export async function getService(db: DBExecutor, id: number): Promise<ServiceRecord | undefined> {
+  const row = await db.queryOne<Row>('SELECT * FROM services WHERE id = $1', [id]);
   return row ? map(row) : undefined;
 }
 
-export function createService(
-  db: DB,
-  input: Pick<ServiceRecord, 'name' | 'description' | 'category' | 'status' | 'availability_note'> & { metadata?: Record<string, unknown> },
-): ServiceRecord {
-  const info = db.prepare(
+export async function createService(
+  db: DBExecutor,
+  input: Pick<ServiceRecord, 'name' | 'description' | 'category' | 'status' | 'availability_note'> & {
+    metadata?: Record<string, unknown>;
+  },
+): Promise<ServiceRecord> {
+  const row = await db.queryOne<Row>(
     `INSERT INTO services (name, description, category, status, availability_note, metadata)
-     VALUES (@name, @description, @category, @status, @availability_note, @metadata)`,
-  ).run({ ...input, metadata: JSON.stringify(input.metadata ?? {}) });
-  return getService(db, Number(info.lastInsertRowid))!;
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING *`,
+    [
+      input.name,
+      input.description,
+      input.category,
+      input.status,
+      input.availability_note,
+      JSON.stringify(input.metadata ?? {}),
+    ],
+  );
+  return map(row!);
 }
 
-export function updateService(
-  db: DB,
+export async function updateService(
+  db: DBExecutor,
   id: number,
-  input: Partial<Pick<ServiceRecord, 'name' | 'description' | 'category' | 'status' | 'availability_note'>> & { metadata?: Record<string, unknown> },
-): ServiceRecord | undefined {
-  const existing = getService(db, id);
+  input: Partial<Pick<ServiceRecord, 'name' | 'description' | 'category' | 'status' | 'availability_note'>> & {
+    metadata?: Record<string, unknown>;
+  },
+): Promise<ServiceRecord | undefined> {
+  const existing = await getService(db, id);
   if (!existing) return undefined;
-  const next = {
-    name: input.name ?? existing.name,
-    description: input.description ?? existing.description,
-    category: input.category ?? existing.category,
-    status: input.status ?? existing.status,
-    availability_note: input.availability_note ?? existing.availability_note,
-    metadata: JSON.stringify(input.metadata ?? existing.metadata),
-  };
-  db.prepare(
-    `UPDATE services SET name=@name, description=@description, category=@category, status=@status,
-     availability_note=@availability_note, metadata=@metadata, updated_at=datetime('now') WHERE id=@id`,
-  ).run({ id, ...next });
-  return getService(db, id);
+  const row = await db.queryOne<Row>(
+    `UPDATE services
+     SET name = $1, description = $2, category = $3, status = $4,
+         availability_note = $5, metadata = $6, updated_at = ${UTC_NOW_SQL}
+     WHERE id = $7
+     RETURNING *`,
+    [
+      input.name ?? existing.name,
+      input.description ?? existing.description,
+      input.category ?? existing.category,
+      input.status ?? existing.status,
+      input.availability_note ?? existing.availability_note,
+      JSON.stringify(input.metadata ?? existing.metadata),
+      id,
+    ],
+  );
+  return row ? map(row) : undefined;
 }

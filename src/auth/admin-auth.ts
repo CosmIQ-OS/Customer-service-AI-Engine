@@ -38,8 +38,8 @@ export class AdminAuth {
     this.windowMs = (options.lockoutWindowMinutes ?? 15) * 60_000;
   }
 
-  hasAdmins(): boolean {
-    return adminsRepo.countAdmins(this.db) > 0;
+  async hasAdmins(): Promise<boolean> {
+    return (await adminsRepo.countAdmins(this.db)) > 0;
   }
 
   async createAdmin(username: string, password: string, displayName = ''): Promise<AdminPrincipal> {
@@ -49,10 +49,10 @@ export class AdminAuth {
     if (password.length < MIN_PASSWORD_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
       throw new Error(`Password must be ${MIN_PASSWORD_LENGTH}-${MAX_PASSWORD_LENGTH} characters.`);
     }
-    if (adminsRepo.findAdminCredentials(this.db, username)) {
+    if (await adminsRepo.findAdminCredentials(this.db, username)) {
       throw new Error(`Admin "${username}" already exists.`);
     }
-    const record = adminsRepo.createAdmin(this.db, {
+    const record = await adminsRepo.createAdmin(this.db, {
       username,
       passwordHash: await hashPassword(password),
       displayName,
@@ -64,17 +64,18 @@ export class AdminAuth {
     if (password.length < MIN_PASSWORD_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
       throw new Error(`Password must be ${MIN_PASSWORD_LENGTH}-${MAX_PASSWORD_LENGTH} characters.`);
     }
-    const credentials = adminsRepo.findAdminCredentials(this.db, username);
+    const credentials = await adminsRepo.findAdminCredentials(this.db, username);
     if (!credentials) throw new Error(`Admin "${username}" not found.`);
-    adminsRepo.updateAdminPassword(this.db, credentials.id, await hashPassword(password));
-    adminsRepo.deleteAdminSessions(this.db, credentials.id);
+    await adminsRepo.updateAdminPassword(this.db, credentials.id, await hashPassword(password));
+    await adminsRepo.deleteAdminSessions(this.db, credentials.id);
   }
 
-  async login(username: string, password: string, clientKey: string, now = Date.now()): Promise<LoginResult> {    if (password.length > MAX_PASSWORD_LENGTH) return { ok: false, reason: 'invalid' };
+  async login(username: string, password: string, clientKey: string, now = Date.now()): Promise<LoginResult> {
+    if (password.length > MAX_PASSWORD_LENGTH) return { ok: false, reason: 'invalid' };
     const key = `${clientKey}|${username.toLowerCase()}`;
     if (this.isLocked(key, now)) return { ok: false, reason: 'locked' };
 
-    const credentials = adminsRepo.findAdminCredentials(this.db, username);
+    const credentials = await adminsRepo.findAdminCredentials(this.db, username);
     const storedHash = credentials ? credentials.password_hash : await this.getDummyHash();
     const passwordOk = await verifyPassword(password, storedHash);
     if (!credentials || credentials.disabled || !passwordOk) {
@@ -86,22 +87,22 @@ export class AdminAuth {
     const nowIso = new Date(now).toISOString();
     const token = randomBytes(32).toString('base64url');
     const expiresAt = new Date(now + this.options.sessionHours * 3_600_000).toISOString();
-    adminsRepo.deleteExpiredSessions(this.db, nowIso);
-    adminsRepo.insertSession(this.db, { tokenHash: hashToken(token), adminId: credentials.id, expiresAt });
-    adminsRepo.touchLastLogin(this.db, credentials.id, nowIso);
+    await adminsRepo.deleteExpiredSessions(this.db, nowIso);
+    await adminsRepo.insertSession(this.db, { tokenHash: hashToken(token), adminId: credentials.id, expiresAt });
+    await adminsRepo.touchLastLogin(this.db, credentials.id, nowIso);
 
-    const admin = adminsRepo.findActiveSession(this.db, hashToken(token), nowIso);
+    const admin = await adminsRepo.findActiveSession(this.db, hashToken(token), nowIso);
     if (!admin) return { ok: false, reason: 'invalid' };
     return { ok: true, token, admin, expiresAt };
   }
 
-  resolve(token: string | undefined, now = Date.now()): AdminPrincipal | undefined {
+  async resolve(token: string | undefined, now = Date.now()): Promise<AdminPrincipal | undefined> {
     if (!token) return undefined;
     return adminsRepo.findActiveSession(this.db, hashToken(token), new Date(now).toISOString());
   }
 
-  logout(token: string | undefined): void {
-    if (token) adminsRepo.deleteSession(this.db, hashToken(token));
+  async logout(token: string | undefined): Promise<void> {
+    if (token) await adminsRepo.deleteSession(this.db, hashToken(token));
   }
 
   private getDummyHash(): Promise<string> {

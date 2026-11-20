@@ -1,4 +1,4 @@
-import type { DB } from '../database.js';
+import { UTC_NOW_SQL, type DBExecutor } from '../database.js';
 
 export interface AdminNotificationRecord {
   id: number;
@@ -11,62 +11,77 @@ export interface AdminNotificationRecord {
   created_at: string;
 }
 
-export function createNotification(
-  db: DB,
+function map(row: AdminNotificationRecord): AdminNotificationRecord {
+  return {
+    ...row,
+    id: Number(row.id),
+    quote_id: row.quote_id === null ? null : Number(row.quote_id),
+  };
+}
+
+export async function createNotification(
+  db: DBExecutor,
   input: Pick<AdminNotificationRecord, 'kind' | 'title' | 'body'> &
     Partial<Pick<AdminNotificationRecord, 'quote_id' | 'session_id'>>,
-): AdminNotificationRecord {
-  const info = db.prepare(
+): Promise<AdminNotificationRecord> {
+  const row = await db.queryOne<AdminNotificationRecord>(
     `INSERT INTO admin_notifications (kind, quote_id, session_id, title, body)
-     VALUES (@kind, @quote_id, @session_id, @title, @body)`,
-  ).run({
-    kind: input.kind,
-    quote_id: input.quote_id ?? null,
-    session_id: input.session_id ?? null,
-    title: input.title,
-    body: input.body,
-  });
-  return getNotification(db, Number(info.lastInsertRowid))!;
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING *`,
+    [
+      input.kind,
+      input.quote_id ?? null,
+      input.session_id ?? null,
+      input.title,
+      input.body,
+    ],
+  );
+  return map(row!);
 }
 
-export function getNotification(db: DB, id: number): AdminNotificationRecord | undefined {
-  return db.prepare('SELECT * FROM admin_notifications WHERE id = ?').get(id) as AdminNotificationRecord | undefined;
+export async function getNotification(db: DBExecutor, id: number): Promise<AdminNotificationRecord | undefined> {
+  const row = await db.queryOne<AdminNotificationRecord>('SELECT * FROM admin_notifications WHERE id = $1', [id]);
+  return row ? map(row) : undefined;
 }
 
-export function listNotifications(
-  db: DB,
+export async function listNotifications(
+  db: DBExecutor,
   options: { limit?: number; unreadOnly?: boolean } = {},
-): AdminNotificationRecord[] {
+): Promise<AdminNotificationRecord[]> {
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
   const where = options.unreadOnly ? 'WHERE read_at IS NULL' : '';
-  return db.prepare(
-    `SELECT * FROM admin_notifications ${where} ORDER BY created_at DESC, id DESC LIMIT ?`,
-  ).all(limit) as AdminNotificationRecord[];
+  const { rows } = await db.query<AdminNotificationRecord>(
+    `SELECT * FROM admin_notifications ${where} ORDER BY created_at DESC, id DESC LIMIT $1`,
+    [limit],
+  );
+  return rows.map(map);
 }
 
-export function unreadNotificationCount(db: DB): number {
-  const row = db.prepare('SELECT COUNT(*) AS count FROM admin_notifications WHERE read_at IS NULL').get() as {
-    count: number;
-  };
-  return row.count;
+export async function unreadNotificationCount(db: DBExecutor): Promise<number> {
+  const row = await db.queryOne<{ count: number }>(
+    'SELECT COUNT(*)::int AS count FROM admin_notifications WHERE read_at IS NULL',
+  );
+  return Number(row?.count ?? 0);
 }
 
-export function markNotificationRead(db: DB, id: number): AdminNotificationRecord | undefined {
-  db.prepare("UPDATE admin_notifications SET read_at = COALESCE(read_at, datetime('now')) WHERE id = ?").run(id);
-  return getNotification(db, id);
+export async function markNotificationRead(db: DBExecutor, id: number): Promise<AdminNotificationRecord | undefined> {
+  const row = await db.queryOne<AdminNotificationRecord>(
+    `UPDATE admin_notifications SET read_at = COALESCE(read_at, ${UTC_NOW_SQL}) WHERE id = $1 RETURNING *`,
+    [id],
+  );
+  return row ? map(row) : undefined;
 }
 
-export function markAllNotificationsRead(db: DB): number {
-  const info = db.prepare(
-    "UPDATE admin_notifications SET read_at = datetime('now') WHERE read_at IS NULL",
-  ).run();
-  return info.changes;
+export async function markAllNotificationsRead(db: DBExecutor): Promise<number> {
+  const res = await db.query(`UPDATE admin_notifications SET read_at = ${UTC_NOW_SQL} WHERE read_at IS NULL`);
+  return res.rowCount;
 }
 
 /** Clears approval alerts for a quote once an admin has decided on it. */
-export function markQuoteNotificationsRead(db: DB, quoteId: number): number {
-  const info = db.prepare(
-    "UPDATE admin_notifications SET read_at = datetime('now') WHERE quote_id = ? AND read_at IS NULL",
-  ).run(quoteId);
-  return info.changes;
+export async function markQuoteNotificationsRead(db: DBExecutor, quoteId: number): Promise<number> {
+  const res = await db.query(
+    `UPDATE admin_notifications SET read_at = ${UTC_NOW_SQL} WHERE quote_id = $1 AND read_at IS NULL`,
+    [quoteId],
+  );
+  return res.rowCount;
 }

@@ -10,9 +10,9 @@ RUN npm run build
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-# Build tools are needed so better-sqlite3 can compile when no prebuilt binary matches.
+# ca-certificates ensures TLS verification for Neon PostgreSQL and external APIs.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
+  && apt-get install -y --no-install-recommends ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
 # tsx runs the TypeScript sources directly, so dev dependencies stay installed.
@@ -20,7 +20,7 @@ RUN npm ci --include=dev --no-audit --no-fund && npm cache clean --force
 COPY src/ ./src/
 COPY tsconfig.json ./
 COPY --from=dashboard /dashboard/dist/ ./dashboard/dist/
-# Run as the built-in node user (uid/gid 1000); ensure data directory is writable.
+# Run as the built-in node user (uid/gid 1000); ensure fallback data directory is writable.
 RUN mkdir -p /app/data \
   && chown -R node:node /app \
   && chmod -R 777 /app/data

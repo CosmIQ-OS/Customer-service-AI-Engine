@@ -5,16 +5,26 @@ import { SupportEngine } from './engine/support-engine.js';
 import { TelegramAdapter, parseAdminChatIds } from './adapters/telegram.js';
 import { WhatsAppAdapter } from './adapters/whatsapp.js';
 import { createApp } from './server/app.js';
-import { loadConfig } from './config/index.js';
+import { loadConfig, resolveDatabaseTarget } from './config/index.js';
 import { createLLMProvider } from './llm/index.js';
 import { AdminAuth } from './auth/admin-auth.js';
 import { ensureQuoteMarginSetting } from './db/repositories/settings.js';
 import { activePriceTable, publishPriceTable } from './db/repositories/pricing.js';
 
-const config = loadConfig();
+export async function bootstrap() {
+  const config = loadConfig();
 
-export function bootstrap() {
-  const db = openDatabase(config.DB_PATH);
+  if (process.env.RENDER && !config.DATABASE_URL) {
+    console.warn(
+      '[db] WARNING: Running on Render without DATABASE_URL. ' +
+        'Local PGlite storage is ephemeral on Render Free Tier and will reset on redeploy/restart. ' +
+        'Set DATABASE_URL to your Neon PostgreSQL connection string for permanent persistence.',
+    );
+  }
+
+  const db = await openDatabase(resolveDatabaseTarget(config), {
+    migrationUrl: config.DATABASE_URL_UNPOOLED,
+  });
   const auth = new AdminAuth(db, { sessionHours: config.ADMIN_SESSION_HOURS });
   const llm = createLLMProvider(config);
   const engine = new SupportEngine(db, {
@@ -46,14 +56,17 @@ export function bootstrap() {
     adapter.bind?.((message) => engine.handleMessage(message));
   }
 
-  seedIfEmpty(engine);
-  ensureQuoteMarginSetting(db, config.QUOTE_MARGIN_PERCENT);
+  await seedIfEmpty(engine);
+  await ensureQuoteMarginSetting(db, config.QUOTE_MARGIN_PERCENT);
 
-  if (!auth.hasAdmins()) {
+  if (!(await auth.hasAdmins())) {
     const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || 'AdminSecret2026!';
-    auth.createAdmin('admin', initialPassword, 'CosmIQ Admin')
-      .then(() => console.log('[auth] Created default admin account (username: admin)'))
-      .catch((err) => console.error('[auth] Failed to create default admin account:', err));
+    try {
+      await auth.createAdmin('admin', initialPassword, 'CosmIQ Admin');
+      console.log('[auth] Created default admin account (username: admin)');
+    } catch (err) {
+      console.error('[auth] Failed to create default admin account:', err);
+    }
   }
 
   const app = createApp(engine, {
@@ -64,35 +77,46 @@ export function bootstrap() {
     webhookSecret: config.CHANNEL_WEBHOOK_SECRET,
     whatsappVerifyToken: config.WHATSAPP_VERIFY_TOKEN,
   });
-  app.listen(config.PORT, () => {
+
+  const server = app.listen(config.PORT, () => {
     console.log(`[support-engine] API + dashboard server listening on http://localhost:${config.PORT}`);
-    console.log(`[support-engine] DB: ${config.DB_PATH}`);
+    console.log(`[support-engine] DB: ${db.driver} (${db.target})`);
     console.log(`[support-engine] LLM: ${config.LLM_PROVIDER} / ${config.LLM_MODEL}`);
     console.log(`[support-engine] Pricing model: ${config.PRICING_LLM_MODEL ?? config.LLM_MODEL}`);
     console.log(`[support-engine] Quote approval window: ${config.QUOTE_APPROVAL_WINDOW_HOURS}h`);
   });
 
-  startApprovalScheduler(engine);
-  startConversationScheduler(engine);
+  const stopApprovals = startApprovalScheduler(engine);
+  const stopConversations = startConversationScheduler(engine);
 
   for (const adapter of engine.adapters.list()) {
     adapter.connect?.().catch((err) => console.error('[%s] connect error', adapter.channel, err));
   }
 
-  return { db, engine, app };
+  const shutdown = () => {
+    stopApprovals();
+    stopConversations();
+    server.close(() => {
+      db.close().finally(() => process.exit(0));
+    });
+  };
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
+
+  return { db, engine, app, server };
 }
 
 /** Closes conversations that a human left idle, every minute. */
 export function startConversationScheduler(engine: SupportEngine, intervalMs = 60_000): () => void {
   const tick = () => {
-    try {
-      const closed = engine.closeIdleConversations();
-      if (closed.length > 0) {
-        console.log(`[conversations] Closed ${closed.length} idle conversation(s).`);
-      }
-    } catch (error) {
-      console.error('[conversations] idle sweep failed', error);
-    }
+    engine
+      .closeIdleConversations()
+      .then((closed) => {
+        if (closed.length > 0) {
+          console.log(`[conversations] Closed ${closed.length} idle conversation(s).`);
+        }
+      })
+      .catch((error) => console.error('[conversations] idle sweep failed', error));
   };
   tick();
   const timer = setInterval(tick, intervalMs);
@@ -159,19 +183,19 @@ const COSMIQ_FAQS = [
   },
 ] as const;
 
-function seedCosmiqServices(engine: SupportEngine) {
-  const existing = new Set(engine.listServices().map((service) => service.name));
+async function seedCosmiqServices(engine: SupportEngine) {
+  const existing = new Set((await engine.listServices()).map((service) => service.name));
   for (const service of COSMIQ_SERVICES) {
     if (existing.has(service.name)) continue;
-    engine.createService({ ...service, status: 'available', availability_note: '' });
+    await engine.createService({ ...service, status: 'available', availability_note: '' });
   }
 }
 
-function seedCosmiqFaqs(engine: SupportEngine) {
-  const existing = new Set(engine.listFaqs().map((faq) => faq.question));
+async function seedCosmiqFaqs(engine: SupportEngine) {
+  const existing = new Set((await engine.listFaqs()).map((faq) => faq.question));
   for (const faq of COSMIQ_FAQS) {
     if (existing.has(faq.question)) continue;
-    engine.createFaq({
+    await engine.createFaq({
       question: faq.question,
       answer: faq.answer,
       tags: [...faq.tags],
@@ -202,13 +226,13 @@ const DEFAULT_PRICE_TABLES: Record<string, Array<{ item_code: string; descriptio
   ],
 };
 
-function seedCosmiqPriceTables(engine: SupportEngine) {
-  for (const service of engine.listServices()) {
+async function seedCosmiqPriceTables(engine: SupportEngine) {
+  for (const service of await engine.listServices()) {
     const items = DEFAULT_PRICE_TABLES[service.name];
     if (!items) continue;
-    const active = activePriceTable(engine.db, service.id);
+    const active = await activePriceTable(engine.db, service.id);
     if (!active) {
-      publishPriceTable(engine.db, {
+      await publishPriceTable(engine.db, {
         serviceId: service.id,
         sourceFilename: 'cosmiq_default_catalog.csv',
         uploadedBy: null,
@@ -219,9 +243,9 @@ function seedCosmiqPriceTables(engine: SupportEngine) {
   }
 
   // Backfill quotes for any completed intake that doesn't have a quote yet
-  const completedIntakes = engine.listIntakes().filter((intake) => intake.status === 'complete');
+  const completedIntakes = (await engine.listIntakes()).filter((intake) => intake.status === 'complete');
   for (const intake of completedIntakes) {
-    const existing = engine.getLatestQuote(intake.session_id);
+    const existing = await engine.getLatestQuote(intake.session_id);
     if (!existing) {
       engine
         .buildQuoteForSession(intake.session_id)
@@ -235,22 +259,27 @@ function seedCosmiqPriceTables(engine: SupportEngine) {
   }
 }
 
-function seedIfEmpty(engine: SupportEngine) {
-  if (engine.listServices().length === 0) {
-    engine.createService({ name: 'Live Chat Support', description: 'Real-time assistance for account and product questions.', category: 'support', status: 'available', availability_note: 'Mon-Fri 09:00-18:00' });
-    engine.createService({ name: 'Billing Assistance', description: 'Invoices, refunds, and payment methods.', category: 'billing', status: 'limited', availability_note: 'Email follow-up within 1 business day' });
-    engine.createService({ name: 'API Integration Support', description: 'Developer onboarding and integration troubleshooting.', category: 'technical', status: 'maintenance', availability_note: 'Back online after scheduled maintenance' });
+async function seedIfEmpty(engine: SupportEngine) {
+  if ((await engine.listServices()).length === 0) {
+    await engine.createService({ name: 'Live Chat Support', description: 'Real-time assistance for account and product questions.', category: 'support', status: 'available', availability_note: 'Mon-Fri 09:00-18:00' });
+    await engine.createService({ name: 'Billing Assistance', description: 'Invoices, refunds, and payment methods.', category: 'billing', status: 'limited', availability_note: 'Email follow-up within 1 business day' });
+    await engine.createService({ name: 'API Integration Support', description: 'Developer onboarding and integration troubleshooting.', category: 'technical', status: 'maintenance', availability_note: 'Back online after scheduled maintenance' });
   }
-  seedCosmiqServices(engine);
-  seedCosmiqFaqs(engine);
-  seedCosmiqPriceTables(engine);
-  if (engine.listFaqs().length === 0) {
-    engine.createFaq({ question: 'What are your support hours?', answer: 'Live chat support is available Monday to Friday, 09:00-18:00 local business time.', tags: ['hours', 'support'] });
-    engine.createFaq({ question: 'How can I check service availability?', answer: 'Ask "what services are available?" in chat, or view the Services panel in the dashboard.', tags: ['services', 'availability'] });
-    engine.createFaq({ question: 'How do I submit a support request?', answer: 'Send your issue in chat and it will be logged as a request. You can also include details like account ID and screenshots.', tags: ['request', 'ticket'] });
+  await seedCosmiqServices(engine);
+  await seedCosmiqFaqs(engine);
+  await seedCosmiqPriceTables(engine);
+  if ((await engine.listFaqs()).length === 0) {
+    await engine.createFaq({ question: 'What are your support hours?', answer: 'Live chat support is available Monday to Friday, 09:00-18:00 local business time.', tags: ['hours', 'support'] });
+    await engine.createFaq({ question: 'How can I check service availability?', answer: 'Ask "what services are available?" in chat, or view the Services panel in the dashboard.', tags: ['services', 'availability'] });
+    await engine.createFaq({ question: 'How do I submit a support request?', answer: 'Send your issue in chat and it will be logged as a request. You can also include details like account ID and screenshots.', tags: ['request', 'ticket'] });
   }
 }
 
 // Run when executed directly.
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
-if (isMain) bootstrap();
+if (isMain) {
+  bootstrap().catch((error) => {
+    console.error('[support-engine] Fatal startup error:', error);
+    process.exit(1);
+  });
+}

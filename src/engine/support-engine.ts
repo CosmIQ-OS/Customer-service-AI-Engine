@@ -1,5 +1,5 @@
 import type { DB } from '../db/database.js';
-import type { EngineResponse, InboundMessage } from './types.js';
+import type { EngineResponse, InboundMessage, SessionRecord } from './types.js';
 import { SessionStore } from './sessions/session-store.js';
 import * as servicesRepo from '../db/repositories/services.js';
 import * as faqsRepo from '../db/repositories/faqs.js';
@@ -94,9 +94,9 @@ export class SupportEngine {
   listIntakes(limit?: number) { return intakeRepo.listIntakes(this.db, limit); }
   getIntake(sessionId: string) { return intakeRepo.getIntake(this.db, sessionId); }
   listQuotes(limit?: number) { return quotesRepo.listQuotes(this.db, limit); }
-  getQuote(id: number) {
-    const quote = quotesRepo.getQuote(this.db, id);
-    return quote ? { quote, items: quotesRepo.listQuoteItems(this.db, id) } : undefined;
+  async getQuote(id: number) {
+    const quote = await quotesRepo.getQuote(this.db, id);
+    return quote ? { quote, items: await quotesRepo.listQuoteItems(this.db, id) } : undefined;
   }
   getLatestQuote(sessionId: string) { return quotesRepo.latestQuoteForSession(this.db, sessionId); }
   getQuoteMarginPercent() { return settingsRepo.getQuoteMarginPercent(this.db); }
@@ -106,23 +106,23 @@ export class SupportEngine {
 
   /** Builds a quote with the pricing agent and queues it for admin approval. */
   async buildQuoteForSession(sessionId: string, options: { force?: boolean } = {}): Promise<BuiltQuote> {
-    const intake = intakeRepo.getIntake(this.db, sessionId);
+    const intake = await intakeRepo.getIntake(this.db, sessionId);
     if (!intake) throw new Error('No intake found for this session.');
     if (intake.status !== 'complete') throw new Error('The intake is not complete yet.');
 
     if (!options.force) {
-      const existing = quotesRepo.latestQuoteForSession(this.db, sessionId);
+      const existing = await quotesRepo.latestQuoteForSession(this.db, sessionId);
       if (existing) {
-        const queued = existing.status === 'draft' ? this.approvals.submit(existing.id) : existing;
-        return { quote: queued, items: quotesRepo.listQuoteItems(this.db, queued.id) };
+        const queued = existing.status === 'draft' ? await this.approvals.submit(existing.id) : existing;
+        return { quote: queued, items: await quotesRepo.listQuoteItems(this.db, queued.id) };
       }
     }
 
-    const history = messagesRepo.listRecentMessages(this.db, sessionId, this.config.maxHistory);
-    const marginPercent = settingsRepo.getQuoteMarginPercent(this.db);
+    const history = await messagesRepo.listRecentMessages(this.db, sessionId, this.config.maxHistory);
+    const marginPercent = await settingsRepo.getQuoteMarginPercent(this.db);
     const built = await this.quoteBuilder.build({ intake, history, marginPercent });
 
-    logsRepo.createLog(this.db, {
+    await logsRepo.createLog(this.db, {
       channel: intake.channel,
       external_user_id: intake.external_user_id,
       session_id: sessionId,
@@ -138,22 +138,26 @@ export class SupportEngine {
       },
     });
 
-    const queued = this.approvals.submit(built.quote.id);
+    const queued = await this.approvals.submit(built.quote.id);
     void this.alertOperators(
       `Quote ${queued.quote_number} is waiting for approval.\n` +
         `Service: ${queued.service_name}\n` +
         `Customer: ${queued.external_user_id} (${queued.channel})\n` +
         `Total: ${(queued.total_paise / 100).toFixed(2)} INR at ${queued.margin_percent}% margin.`,
     );
-    return { quote: queued, items: quotesRepo.listQuoteItems(this.db, queued.id) };
+    return { quote: queued, items: await quotesRepo.listQuoteItems(this.db, queued.id) };
   }
 
   listPendingApprovals(limit?: number) { return this.approvals.listPending(limit); }
 
-  approvalSummary() {
+  async approvalSummary() {
+    const [pending, unread] = await Promise.all([
+      quotesRepo.countPendingApprovals(this.db),
+      notificationsRepo.unreadNotificationCount(this.db),
+    ]);
     return {
-      pending: quotesRepo.countPendingApprovals(this.db),
-      unread: notificationsRepo.unreadNotificationCount(this.db),
+      pending,
+      unread,
       windowHours: this.approvals.window,
     };
   }
@@ -192,7 +196,7 @@ export class SupportEngine {
       try {
         sent += await adapter.notifyAdmins(text);
       } catch (error) {
-        logsRepo.createLog(this.db, {
+        await logsRepo.createLog(this.db, {
           channel: adapter.channel,
           external_user_id: 'operators',
           session_id: null,
@@ -220,19 +224,19 @@ export class SupportEngine {
   }
 
   /** Admin edit before approval: quantities and margin only, line identity and admin prices stay locked. */
-  editQuote(
+  async editQuote(
     id: number,
     input: { marginPercent?: number; quantities?: Record<number, number> },
     adminId: number | null,
   ) {
-    const quote = quotesRepo.getQuote(this.db, id);
+    const quote = await quotesRepo.getQuote(this.db, id);
     if (!quote) throw new Error('Quote not found.');
-    const updated = quotesRepo.updateQuotePricing(this.db, id, {
+    const updated = await quotesRepo.updateQuotePricing(this.db, id, {
       marginPercent: input.marginPercent ?? quote.margin_percent,
       quantities: input.quantities,
     });
-    const items = quotesRepo.listQuoteItems(this.db, id);
-    logsRepo.createLog(this.db, {
+    const items = await quotesRepo.listQuoteItems(this.db, id);
+    await logsRepo.createLog(this.db, {
       channel: updated.channel,
       external_user_id: updated.external_user_id,
       session_id: updated.session_id,
@@ -250,26 +254,26 @@ export class SupportEngine {
   }
 
   async approveQuote(id: number, adminId: number | null) {
-    const quote = this.approvals.decide(id, 'approved', adminId);
-    const items = quotesRepo.listQuoteItems(this.db, id);
+    const quote = await this.approvals.decide(id, 'approved', adminId);
+    const items = await quotesRepo.listQuoteItems(this.db, id);
     const message = approvedQuoteMessage(quote, items);
     const delivered = await this.deliverQuoteMessage(quote, message, 'quote.delivered');
-    return { quote: quotesRepo.getQuote(this.db, id) ?? quote, items, message, delivered };
+    return { quote: (await quotesRepo.getQuote(this.db, id)) ?? quote, items, message, delivered };
   }
 
   async rejectQuote(id: number, adminId: number | null, note = '') {
-    const quote = this.approvals.decide(id, 'rejected', adminId, note);
-    const items = quotesRepo.listQuoteItems(this.db, id);
+    const quote = await this.approvals.decide(id, 'rejected', adminId, note);
+    const items = await quotesRepo.listQuoteItems(this.db, id);
     const message = rejectedQuoteMessage(quote);
     const delivered = await this.deliverQuoteMessage(quote, message, 'quote.handoff_sent');
-    return { quote: quotesRepo.getQuote(this.db, id) ?? quote, items, message, delivered };
+    return { quote: (await quotesRepo.getQuote(this.db, id)) ?? quote, items, message, delivered };
   }
 
   /** Reminds admins about overdue quotes and sends the customer a price-free holding update. */
   async processDueApprovals(): Promise<{ realerted: number }> {
-    const due = this.approvals.due();
+    const due = await this.approvals.due();
     for (const quote of due) {
-      const { quote: updated } = this.approvals.reAlert(quote.id);
+      const { quote: updated } = await this.approvals.reAlert(quote.id);
       await this.deliverQuoteMessage(updated, approvalHoldingMessage(updated), 'quote.holding_sent');
     }
     return { realerted: due.length };
@@ -277,7 +281,7 @@ export class SupportEngine {
 
   private async deliverQuoteMessage(quote: QuoteRecord, text: string, event: string): Promise<boolean> {
     const sessionId = quote.session_id ?? '';
-    messagesRepo.appendMessage(this.db, {
+    await messagesRepo.appendMessage(this.db, {
       session_id: sessionId,
       channel: quote.channel,
       external_user_id: quote.external_user_id,
@@ -298,7 +302,7 @@ export class SupportEngine {
         });
         delivered = true;
       } catch (error) {
-        logsRepo.createLog(this.db, {
+        await logsRepo.createLog(this.db, {
           channel: quote.channel,
           external_user_id: quote.external_user_id,
           session_id: quote.session_id,
@@ -309,9 +313,9 @@ export class SupportEngine {
         });
       }
     }
-    if (delivered) quotesRepo.markQuoteDelivered(this.db, quote.id, toSqlTimestamp(new Date()));
+    if (delivered) await quotesRepo.markQuoteDelivered(this.db, quote.id, toSqlTimestamp(new Date()));
 
-    logsRepo.createLog(this.db, {
+    await logsRepo.createLog(this.db, {
       channel: quote.channel,
       external_user_id: quote.external_user_id,
       session_id: quote.session_id,
@@ -325,14 +329,14 @@ export class SupportEngine {
 
   async handleMessage(msg: InboundMessage): Promise<EngineResponse> {
     const startedAt = Date.now();
-    let session = this.sessions.getOrCreate(msg.channel, msg.externalUserId);
+    let session = await this.sessions.getOrCreate(msg.channel, msg.externalUserId);
     const language = detectLanguage(msg.text);
     if (session.context.language !== language.code) {
-      session = this.sessions.update(session, {
+      session = await this.sessions.update(session, {
         context: { ...session.context, language: language.code, languageLabel: language.label },
       });
-      if (intakeRepo.getIntake(this.db, session.id)) {
-        intakeRepo.upsertIntake(this.db, {
+      if (await intakeRepo.getIntake(this.db, session.id)) {
+        await intakeRepo.upsertIntake(this.db, {
           sessionId: session.id,
           channel: session.channel,
           externalUserId: session.external_user_id,
@@ -341,7 +345,7 @@ export class SupportEngine {
         });
       }
     }
-    logsRepo.createLog(this.db, {
+    await logsRepo.createLog(this.db, {
       channel: msg.channel,
       external_user_id: msg.externalUserId,
       session_id: session.id,
@@ -351,7 +355,7 @@ export class SupportEngine {
       payload: msg.metadata ?? {},
     });
 
-    messagesRepo.appendMessage(this.db, {
+    await messagesRepo.appendMessage(this.db, {
       session_id: session.id,
       channel: msg.channel,
       external_user_id: msg.externalUserId,
@@ -360,12 +364,12 @@ export class SupportEngine {
       tenant_id: this.config.tenantId,
     });
 
-    this.conversations.recordInbound(session, msg.text, displayNameFrom(msg.metadata));
+    await this.conversations.recordInbound(session, msg.text, displayNameFrom(msg.metadata));
 
     // A human owns this conversation: record the message and let the agent wait.
-    if (!this.conversations.isAiActive(session.id)) {
-      const conversation = this.conversations.get(session.id);
-      logsRepo.createLog(this.db, {
+    if (!(await this.conversations.isAiActive(session.id))) {
+      const conversation = await this.conversations.get(session.id);
+      await logsRepo.createLog(this.db, {
         channel: msg.channel,
         external_user_id: msg.externalUserId,
         session_id: session.id,
@@ -383,13 +387,13 @@ export class SupportEngine {
     }
 
     try {
-      const history = messagesRepo.listRecentMessages(this.db, session.id, this.config.maxHistory);
+      const history = await messagesRepo.listRecentMessages(this.db, session.id, this.config.maxHistory);
       const result = await this.agentLoop.run({ session, history, tenantId: this.config.tenantId });
-      const response = this.completeTurn(session, msg, result, startedAt);
+      const response = await this.completeTurn(session, msg, result, startedAt);
 
-      const intake = intakeRepo.getIntake(this.db, session.id);
+      const intake = await intakeRepo.getIntake(this.db, session.id);
       if (intake?.status === 'complete') {
-        const existing = quotesRepo.latestQuoteForSession(this.db, session.id);
+        const existing = await quotesRepo.latestQuoteForSession(this.db, session.id);
         if (existing) {
           response.data = { ...response.data, quoteId: existing.id, quoteNumber: existing.quote_number };
         } else if (response.intent === 'intake') {
@@ -397,7 +401,7 @@ export class SupportEngine {
             const built = await this.buildQuoteForSession(session.id);
             response.data = { ...response.data, quoteId: built.quote.id, quoteNumber: built.quote.quote_number };
           } catch (error) {
-            logsRepo.createLog(this.db, {
+            await logsRepo.createLog(this.db, {
               channel: msg.channel,
               external_user_id: msg.externalUserId,
               session_id: session.id,
@@ -416,12 +420,12 @@ export class SupportEngine {
     }
   }
 
-  private completeTurn(
-    session: ReturnType<SessionStore['getOrCreate']>,
+  private async completeTurn(
+    session: SessionRecord,
     msg: InboundMessage,
     result: AgentRunResult,
     startedAt: number,
-  ): EngineResponse {
+  ): Promise<EngineResponse> {
     const intent = detectToolIntent(result.toolCalls);
     const requestId = findRequestId(result.toolCalls);
     const escalated = result.toolCalls.some((call) => call.name === 'escalate_to_human' && call.result);
@@ -436,7 +440,7 @@ export class SupportEngine {
     const guarded = guardPrice(result.reply);
     const reply = guarded.reply;
     if (guarded.blocked) {
-      logsRepo.createLog(this.db, {
+      await logsRepo.createLog(this.db, {
         channel: msg.channel,
         external_user_id: msg.externalUserId,
         session_id: session.id,
@@ -446,7 +450,7 @@ export class SupportEngine {
         payload: { intent },
       });
     }
-    const assistantMessage = messagesRepo.appendMessage(this.db, {
+    const assistantMessage = await messagesRepo.appendMessage(this.db, {
       session_id: session.id,
       channel: msg.channel,
       external_user_id: msg.externalUserId,
@@ -454,7 +458,7 @@ export class SupportEngine {
       content: reply,
       tenant_id: this.config.tenantId,
     });
-    const updatedSession = this.sessions.update(session, {
+    const updatedSession = await this.sessions.update(session, {
       last_intent: intent,
       status: escalated ? 'handoff' : session.status,
       context: {
@@ -466,8 +470,8 @@ export class SupportEngine {
         ...(escalated ? { pendingHandoff: true } : {}),
       },
     });
-    this.conversations.recordOutbound(updatedSession, reply);
-    tracesRepo.createTrace(this.db, {
+    await this.conversations.recordOutbound(updatedSession, reply);
+    await tracesRepo.createTrace(this.db, {
       session_id: session.id,
       message_id: assistantMessage.id,
       model: this.config.model,
@@ -479,7 +483,7 @@ export class SupportEngine {
       tool_calls: result.toolCalls.map(serializeToolCall),
       tenant_id: this.config.tenantId,
     });
-    logsRepo.createLog(this.db, {
+    await logsRepo.createLog(this.db, {
       channel: msg.channel,
       external_user_id: msg.externalUserId,
       session_id: updatedSession.id,
@@ -505,15 +509,15 @@ export class SupportEngine {
     };
   }
 
-  private failTurn(
-    session: ReturnType<SessionStore['getOrCreate']>,
+  private async failTurn(
+    session: SessionRecord,
     msg: InboundMessage,
     error: unknown,
     startedAt: number,
-  ): EngineResponse {
+  ): Promise<EngineResponse> {
     const detail = error instanceof Error ? error.message : String(error);
     console.error('[agent] turn failed', error);
-    const request = requestsRepo.createRequest(this.db, {
+    const request = await requestsRepo.createRequest(this.db, {
       channel: msg.channel,
       external_user_id: msg.externalUserId,
       session_id: session.id,
@@ -524,7 +528,7 @@ export class SupportEngine {
       metadata: { error: detail },
     });
     const reply = `I couldn’t complete that request right now, so I logged it for human follow-up as request #${request.id}.`;
-    const assistantMessage = messagesRepo.appendMessage(this.db, {
+    const assistantMessage = await messagesRepo.appendMessage(this.db, {
       session_id: session.id,
       channel: msg.channel,
       external_user_id: msg.externalUserId,
@@ -532,11 +536,11 @@ export class SupportEngine {
       content: reply,
       tenant_id: this.config.tenantId,
     });
-    this.sessions.update(session, {
+    await this.sessions.update(session, {
       last_intent: 'agent_error',
       context: { ...session.context, lastMessage: msg.text, lastReply: reply, lastSeenAt: new Date().toISOString() },
     });
-    tracesRepo.createTrace(this.db, {
+    await tracesRepo.createTrace(this.db, {
       session_id: session.id,
       message_id: assistantMessage.id,
       model: this.config.model,
@@ -545,7 +549,7 @@ export class SupportEngine {
       error: detail,
       tenant_id: this.config.tenantId,
     });
-    logsRepo.createLog(this.db, {
+    await logsRepo.createLog(this.db, {
       channel: msg.channel,
       external_user_id: msg.externalUserId,
       session_id: session.id,

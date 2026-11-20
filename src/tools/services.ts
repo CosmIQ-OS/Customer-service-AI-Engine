@@ -7,8 +7,8 @@ export const listServicesTool: Tool = {
   description: 'Get the current service catalog and real availability status. Use this before answering availability questions.',
   schema: z.object({}),
   parameters: emptyParameters,
-  execute(_input, context) {
-    const services = listServices(context.db);
+  async execute(_input, context) {
+    const services = await listServices(context.db);
     return {
       result: { services },
       observation: services.length === 0

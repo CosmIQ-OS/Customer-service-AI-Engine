@@ -22,16 +22,16 @@ export class SessionStore {
     return d.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
   }
 
-  getOrCreate(channel: string, externalUserId: string): SessionRecord {
+  async getOrCreate(channel: string, externalUserId: string): Promise<SessionRecord> {
     const k = this.key(channel, externalUserId);
     const cached = this.cache.get(k);
     if (cached && (!cached.record.expires_at || new Date(cached.record.expires_at + 'Z').getTime() > Date.now())) {
       return cached.record;
     }
-    const existing = repo.getSessionByKey(this.db, channel, externalUserId);
+    const existing = await repo.getSessionByKey(this.db, channel, externalUserId);
     const record = existing && (!existing.expires_at || new Date(existing.expires_at + 'Z').getTime() > Date.now())
-      ? repo.upsertSession(this.db, { ...existing, expires_at: this.expiry(), context: existing.context })
-      : repo.upsertSession(this.db, {
+      ? await repo.upsertSession(this.db, { ...existing, expires_at: this.expiry(), context: existing.context })
+      : await repo.upsertSession(this.db, {
           id: crypto.randomUUID(),
           channel,
           external_user_id: externalUserId,
@@ -43,8 +43,11 @@ export class SessionStore {
     return record;
   }
 
-  update(session: SessionRecord, patch: { context?: Record<string, unknown>; last_intent?: string; status?: string }): SessionRecord {
-    const next = repo.upsertSession(this.db, {
+  async update(
+    session: SessionRecord,
+    patch: { context?: Record<string, unknown>; last_intent?: string; status?: string },
+  ): Promise<SessionRecord> {
+    const next = await repo.upsertSession(this.db, {
       id: session.id,
       channel: session.channel,
       external_user_id: session.external_user_id,

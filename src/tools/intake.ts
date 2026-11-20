@@ -39,10 +39,10 @@ export const saveIntakeTool: Tool<typeof intakeSchema> = {
     },
     additionalProperties: false,
   },
-  execute(input, context) {
+  async execute(input, context) {
     let serviceId = input.service_id ?? null;
     let serviceName = input.service_name?.trim() ?? '';
-    const services = listServices(context.db);
+    const services = await listServices(context.db);
     if (serviceId !== null && !services.some((service) => service.id === serviceId)) {
       serviceId = null;
     }
@@ -56,7 +56,7 @@ export const saveIntakeTool: Tool<typeof intakeSchema> = {
       serviceName = services.find((service) => service.id === serviceId)!.name;
     }
 
-    const intake = upsertIntake(context.db, {
+    const intake = await upsertIntake(context.db, {
       sessionId: context.session.id,
       channel: context.channel,
       externalUserId: context.externalUserId,
@@ -89,8 +89,8 @@ export const getIntakeTool: Tool = {
     'Use this before asking the customer to repeat themselves.',
   schema: z.object({}),
   parameters: { type: 'object', properties: {}, additionalProperties: false },
-  execute(_input, context) {
-    const intake = getIntake(context.db, context.session.id);
+  async execute(_input, context) {
+    const intake = await getIntake(context.db, context.session.id);
     if (!intake) {
       return {
         result: { intake: null, missingFields: missingIntakeFields(emptyIntake) },

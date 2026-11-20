@@ -12,8 +12,8 @@ export const searchFaqTool: Tool = {
     required: ['query'],
     additionalProperties: false,
   },
-  execute(input, context) {
-    const faq = findFaqAnswer(context.db, input.query);
+  async execute(input, context) {
+    const faq = await findFaqAnswer(context.db, input.query);
     return {
       result: { faq: faq ?? null },
       observation: faq

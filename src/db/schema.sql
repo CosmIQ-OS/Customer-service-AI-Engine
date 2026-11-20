@@ -1,30 +1,27 @@
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
-
 CREATE TABLE IF NOT EXISTS services (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   category TEXT NOT NULL DEFAULT 'general',
   status TEXT NOT NULL CHECK (status IN ('available', 'unavailable', 'limited', 'maintenance')) DEFAULT 'available',
   availability_note TEXT NOT NULL DEFAULT '',
   metadata TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),
+  updated_at TEXT NOT NULL DEFAULT (to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'))
 );
 
 CREATE TABLE IF NOT EXISTS faqs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   question TEXT NOT NULL,
   answer TEXT NOT NULL,
   tags TEXT NOT NULL DEFAULT '[]',
   enabled INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),
+  updated_at TEXT NOT NULL DEFAULT (to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'))
 );
 
 CREATE TABLE IF NOT EXISTS chat_requests (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   channel TEXT NOT NULL,
   external_user_id TEXT NOT NULL,
   session_id TEXT,
@@ -34,13 +31,13 @@ CREATE TABLE IF NOT EXISTS chat_requests (
   status TEXT NOT NULL DEFAULT 'open',
   resolution TEXT NOT NULL DEFAULT '',
   metadata TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),
+  updated_at TEXT NOT NULL DEFAULT (to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'))
 );
 
 CREATE TABLE IF NOT EXISTS chat_logs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  request_id INTEGER,
+  id SERIAL PRIMARY KEY,
+  request_id INTEGER REFERENCES chat_requests(id) ON DELETE SET NULL,
   channel TEXT NOT NULL,
   external_user_id TEXT NOT NULL,
   session_id TEXT,
@@ -48,8 +45,7 @@ CREATE TABLE IF NOT EXISTS chat_logs (
   event TEXT NOT NULL,
   message TEXT NOT NULL DEFAULT '',
   payload TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY (request_id) REFERENCES chat_requests(id) ON DELETE SET NULL
+  created_at TEXT NOT NULL DEFAULT (to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'))
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -60,8 +56,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   last_intent TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'active',
   expires_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT (to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),
+  updated_at TEXT NOT NULL DEFAULT (to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),
   UNIQUE(channel, external_user_id)
 );
 

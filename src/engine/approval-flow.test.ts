@@ -8,12 +8,12 @@ import type { EngineResponse, InboundMessage } from './types.js';
 import { SupportEngine } from './support-engine.js';
 
 const databases: DB[] = [];
-afterEach(() => {
-  while (databases.length) databases.pop()?.close();
+afterEach(async () => {
+  while (databases.length) await databases.pop()?.close();
 });
 
-function createEngine(options: { now?: () => Date } = {}) {
-  const db = openDatabase(':memory:');
+async function createEngine(options: { now?: () => Date } = {}) {
+  const db = await openDatabase(':memory:');
   databases.push(db);
   const engine = new SupportEngine(db, {
     sessionTtlMinutes: 120,
@@ -27,14 +27,14 @@ function createEngine(options: { now?: () => Date } = {}) {
     approvalWindowHours: 6,
     now: options.now,
   });
-  const workflow = engine.createService({
+  const workflow = await engine.createService({
     name: 'Workflow Automation',
     description: 'End-to-end business workflows.',
     category: 'workflow',
     status: 'available',
     availability_note: '',
   });
-  publishPriceTable(db, {
+  await publishPriceTable(db, {
     serviceId: workflow.id,
     sourceFilename: 'workflow.csv',
     uploadedBy: null,
@@ -43,10 +43,10 @@ function createEngine(options: { now?: () => Date } = {}) {
       { item_code: 'WF-2', description: 'Automation build', unit: 'project', unit_price_paise: 500_000 },
     ],
   });
-  const admin = db
-    .prepare("INSERT INTO admin_users (username, password_hash) VALUES ('test-admin', 'unused')")
-    .run();
-  return { db, engine, adminId: Number(admin.lastInsertRowid) };
+  const admin = await db.queryOne<{ id: number }>(
+    "INSERT INTO admin_users (username, password_hash) VALUES ('test-admin', 'unused') RETURNING id",
+  );
+  return { db, engine, adminId: Number(admin!.id) };
 }
 
 async function startIntake(engine: SupportEngine, userId = 'approval-user') {
@@ -62,12 +62,12 @@ async function startIntake(engine: SupportEngine, userId = 'approval-user') {
 
 describe('quote approval flow', () => {
   it('edits a pending quote, approves it, and stores the itemized customer message', async () => {
-    const { engine, adminId } = createEngine();
+    const { engine, adminId } = await createEngine();
     const { quoteId, sessionId } = await startIntake(engine);
-    const pending = engine.getQuote(quoteId)!;
+    const pending = (await engine.getQuote(quoteId))!;
     const item = pending.items[0];
 
-    const edited = engine.editQuote(
+    const edited = await engine.editQuote(
       quoteId,
       { marginPercent: 35, quantities: { [item.id]: 2 } },
       adminId,
@@ -83,17 +83,17 @@ describe('quote approval flow', () => {
     assert.match(result.message, /WF-2/);
     assert.match(result.message, /Total: ₹13,500\.00 \(INR\)/);
 
-    const messages = engine.listMessages(sessionId);
+    const messages = await engine.listMessages(sessionId);
     assert.ok(messages.some((message) => message.role === 'assistant' && message.content === result.message));
-    const logs = engine.listLogs(50);
+    const logs = await engine.listLogs(50);
     assert.ok(logs.some((log) => log.event === 'quote.approved'));
     assert.ok(logs.some((log) => log.event === 'quote.delivered' && log.direction === 'outbound'));
-    assert.equal(engine.approvalSummary().pending, 0);
-    assert.equal(engine.approvalSummary().unread, 0);
+    assert.equal((await engine.approvalSummary()).pending, 0);
+    assert.equal((await engine.approvalSummary()).unread, 0);
   });
 
   it('delivers an approved quote through the channel adapter when one is registered', async () => {
-    const { engine } = createEngine();
+    const { engine } = await createEngine();
     const sent: EngineResponse[] = [];
     const adapter: ChannelAdapter = {
       channel: 'telegram',
@@ -116,7 +116,7 @@ describe('quote approval flow', () => {
   });
 
   it('sends a price-free handoff when an admin rejects a quote', async () => {
-    const { engine, adminId } = createEngine();
+    const { engine, adminId } = await createEngine();
     const { quoteId, sessionId } = await startIntake(engine, 'reject-user');
     const result = await engine.rejectQuote(quoteId, adminId, 'Scope does not fit the budget.');
 
@@ -125,39 +125,39 @@ describe('quote approval flow', () => {
     assert.equal(result.message.includes('₹'), false);
     assert.match(result.message, /specialist will follow up/i);
 
-    const messages = engine.listMessages(sessionId);
+    const messages = await engine.listMessages(sessionId);
     assert.ok(messages.some((message) => message.content === result.message));
-    assert.equal(engine.approvalSummary().unread, 0);
+    assert.equal((await engine.approvalSummary()).unread, 0);
   });
 
   it('re-alerts after six hours, keeps the quote pending, and sends a holding update', async () => {
     let now = new Date('2026-11-11T10:00:00.000Z');
-    const { engine } = createEngine({ now: () => now });
+    const { engine } = await createEngine({ now: () => now });
     const { quoteId, sessionId } = await startIntake(engine, 'waiting-user');
 
-    const pending = engine.getQuote(quoteId)!;
+    const pending = (await engine.getQuote(quoteId))!;
     assert.equal(pending.quote.expires_at, '2026-11-11 16:00:00');
 
     assert.deepEqual(await engine.processDueApprovals(), { realerted: 0 });
-    assert.equal(engine.approvalSummary().unread, 1);
+    assert.equal((await engine.approvalSummary()).unread, 1);
 
     now = new Date('2026-11-11T16:00:05.000Z');
     assert.deepEqual(await engine.processDueApprovals(), { realerted: 1 });
 
-    const after = engine.getQuote(quoteId)!;
+    const after = (await engine.getQuote(quoteId))!;
     assert.equal(after.quote.status, 'pending_approval');
     assert.equal(after.quote.alert_count, 1);
     assert.equal(after.quote.next_alert_at, '2026-11-11 22:00:05');
-    assert.equal(engine.approvalSummary().unread, 2);
+    assert.equal((await engine.approvalSummary()).unread, 2);
 
-    const holding = engine
-      .listMessages(sessionId)
-      .filter((message) => message.role === 'assistant' && /still with our team/i.test(message.content));
+    const holding = (await engine.listMessages(sessionId)).filter(
+      (message) => message.role === 'assistant' && /still with our team/i.test(message.content),
+    );
     assert.equal(holding.length, 1);
     assert.match(holding[0].content, new RegExp(pending.quote.quote_number));
     assert.equal(holding[0].content.includes('₹'), false);
 
     assert.deepEqual(await engine.processDueApprovals(), { realerted: 0 });
-    assert.equal(engine.getQuote(quoteId)!.quote.alert_count, 1);
+    assert.equal((await engine.getQuote(quoteId))!.quote.alert_count, 1);
   });
 });

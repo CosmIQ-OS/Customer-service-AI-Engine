@@ -6,8 +6,8 @@ import { PRICE_HOLDING_MESSAGE, containsPrice, guardPrice } from './price-guard.
 import { SupportEngine } from './support-engine.js';
 
 const databases: DB[] = [];
-afterEach(() => {
-  while (databases.length) databases.pop()?.close();
+afterEach(async () => {
+  while (databases.length) await databases.pop()?.close();
 });
 
 class FixedLLM implements LLMProvider {
@@ -20,8 +20,8 @@ class FixedLLM implements LLMProvider {
   }
 }
 
-function createEngine(content: string): SupportEngine {
-  const db = openDatabase(':memory:');
+async function createEngine(content: string): Promise<SupportEngine> {
+  const db = await openDatabase(':memory:');
   databases.push(db);
   return new SupportEngine(db, {
     sessionTtlMinutes: 120,
@@ -51,7 +51,7 @@ describe('price guard', () => {
   });
 
   it('replaces a price-bearing reply and records the block', async () => {
-    const engine = createEngine('That will cost ₹50,000 for the setup.');
+    const engine = await createEngine('That will cost ₹50,000 for the setup.');
     const result = await engine.handleMessage({
       channel: 'telegram',
       externalUserId: 'price-user',
@@ -60,12 +60,12 @@ describe('price guard', () => {
 
     assert.equal(result.reply, PRICE_HOLDING_MESSAGE);
     assert.equal(result.data?.priceBlocked, true);
-    assert.equal(engine.listLogs(10).some((log) => log.event === 'price.blocked'), true);
+    assert.equal((await engine.listLogs(10)).some((log) => log.event === 'price.blocked'), true);
   });
 
   it('leaves a price-free reply untouched', async () => {
     const content = 'Our pricing team will prepare a quote and it will be reviewed before it is shared with you.';
-    const engine = createEngine(content);
+    const engine = await createEngine(content);
     const result = await engine.handleMessage({
       channel: 'telegram',
       externalUserId: 'safe-user',
@@ -74,6 +74,6 @@ describe('price guard', () => {
 
     assert.equal(result.reply, content);
     assert.equal(result.data?.priceBlocked, false);
-    assert.equal(engine.listLogs(10).some((log) => log.event === 'price.blocked'), false);
+    assert.equal((await engine.listLogs(10)).some((log) => log.event === 'price.blocked'), false);
   });
 });

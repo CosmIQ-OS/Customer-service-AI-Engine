@@ -1,18 +1,29 @@
-import type { DB } from '../database.js';
+import { UTC_NOW_SQL, type DB, type DBExecutor } from '../database.js';
 import { isIntakeComplete, type IntakeInput, type IntakeRecord } from '../../intake/intake.js';
 
-export function getIntake(db: DB, sessionId: string): IntakeRecord | undefined {
-  return db.prepare('SELECT * FROM service_intakes WHERE session_id = ?').get(sessionId) as IntakeRecord | undefined;
+function map(row: IntakeRecord): IntakeRecord {
+  return {
+    ...row,
+    id: Number(row.id),
+    service_id: row.service_id === null ? null : Number(row.service_id),
+  };
 }
 
-export function listIntakes(db: DB, limit = 100): IntakeRecord[] {
-  return db.prepare(
-    'SELECT * FROM service_intakes ORDER BY updated_at DESC, id DESC LIMIT ?',
-  ).all(limit) as IntakeRecord[];
+export async function getIntake(db: DBExecutor, sessionId: string): Promise<IntakeRecord | undefined> {
+  const row = await db.queryOne<IntakeRecord>('SELECT * FROM service_intakes WHERE session_id = $1', [sessionId]);
+  return row ? map(row) : undefined;
+}
+
+export async function listIntakes(db: DBExecutor, limit = 100): Promise<IntakeRecord[]> {
+  const { rows } = await db.query<IntakeRecord>(
+    'SELECT * FROM service_intakes ORDER BY updated_at DESC, id DESC LIMIT $1',
+    [limit],
+  );
+  return rows.map(map);
 }
 
 /** Merges supplied fields into the session's intake. Later calls never erase saved values. */
-export function upsertIntake(
+export async function upsertIntake(
   db: DB,
   input: {
     sessionId: string;
@@ -21,9 +32,9 @@ export function upsertIntake(
     tenantId: string;
     patch: IntakeInput;
   },
-): IntakeRecord {
-  return db.transaction(() => {
-    const existing = getIntake(db, input.sessionId);
+): Promise<IntakeRecord> {
+  return db.transaction(async (tx) => {
+    const existing = await getIntake(tx, input.sessionId);
     const pick = (field: keyof IntakeInput): string | undefined => {
       const value = input.patch[field];
       return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
@@ -40,30 +51,47 @@ export function upsertIntake(
     const status = isIntakeComplete(merged) ? 'complete' : 'collecting';
 
     if (existing) {
-      db.prepare(
+      const row = await tx.queryOne<IntakeRecord>(
         `UPDATE service_intakes SET
-           company_name = @company_name, company_size = @company_size, current_tools = @current_tools,
-           service_id = @service_id, service_name = @service_name, language = @language,
-           status = @status, updated_at = datetime('now')
-         WHERE session_id = @sessionId`,
-      ).run({ sessionId: input.sessionId, ...merged, status });
-    } else {
-      db.prepare(
-        `INSERT INTO service_intakes
-           (session_id, channel, external_user_id, company_name, company_size, current_tools,
-            service_id, service_name, language, status, tenant_id)
-         VALUES (@sessionId, @channel, @externalUserId, @company_name, @company_size, @current_tools,
-            @service_id, @service_name, @language, @status, @tenantId)`,
-      ).run({
-        sessionId: input.sessionId,
-        channel: input.channel,
-        externalUserId: input.externalUserId,
-        tenantId: input.tenantId,
-        ...merged,
-        status,
-      });
+           company_name = $1, company_size = $2, current_tools = $3,
+           service_id = $4, service_name = $5, language = $6,
+           status = $7, updated_at = ${UTC_NOW_SQL}
+         WHERE session_id = $8
+         RETURNING *`,
+        [
+          merged.company_name,
+          merged.company_size,
+          merged.current_tools,
+          merged.service_id,
+          merged.service_name,
+          merged.language,
+          status,
+          input.sessionId,
+        ],
+      );
+      return map(row!);
     }
 
-    return getIntake(db, input.sessionId)!;
-  })();
+    const row = await tx.queryOne<IntakeRecord>(
+      `INSERT INTO service_intakes
+         (session_id, channel, external_user_id, company_name, company_size, current_tools,
+          service_id, service_name, language, status, tenant_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING *`,
+      [
+        input.sessionId,
+        input.channel,
+        input.externalUserId,
+        merged.company_name,
+        merged.company_size,
+        merged.current_tools,
+        merged.service_id,
+        merged.service_name,
+        merged.language,
+        status,
+        input.tenantId,
+      ],
+    );
+    return map(row!);
+  });
 }

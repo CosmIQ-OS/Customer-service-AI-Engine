@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { SupportEngine } from '../engine/support-engine.js';
 import { MAX_QUOTE_MARGIN, MIN_QUOTE_MARGIN } from '../pricing/margin.js';
+import { asyncHandler } from './async-handler.js';
 
 const marginSchema = z.object({
   marginPercent: z.number().min(MIN_QUOTE_MARGIN).max(MAX_QUOTE_MARGIN),
@@ -36,56 +37,58 @@ const rejectSchema = z.object({
 export function createQuoteRouter(engine: SupportEngine): Router {
   const router = Router();
 
-  router.get('/settings', (_req, res) => {
-    res.json(settingsPayload(engine));
-  });
+  router.get('/settings', asyncHandler(async (_req, res) => {
+    res.json(await settingsPayload(engine));
+  }));
 
-  router.put('/settings/quote-margin', (req, res) => {
+  router.put('/settings/quote-margin', asyncHandler(async (req, res) => {
     const parsed = marginSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({
         error: `Margin must be between ${MIN_QUOTE_MARGIN} and ${MAX_QUOTE_MARGIN} percent.`,
       });
     }
-    engine.setQuoteMarginPercent(parsed.data.marginPercent, res.locals.admin?.id ?? null);
-    res.json(settingsPayload(engine));
-  });
+    await engine.setQuoteMarginPercent(parsed.data.marginPercent, res.locals.admin?.id ?? null);
+    res.json(await settingsPayload(engine));
+  }));
 
-  router.get('/quotes', (req, res) => {
+  router.get('/quotes', asyncHandler(async (req, res) => {
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
-    res.json({ quotes: engine.listQuotes(limit) });
-  });
+    res.json({ quotes: await engine.listQuotes(limit) });
+  }));
 
-  router.get('/approvals', (_req, res) => {
-    res.json({
-      pending: engine.listPendingApprovals(),
-      counts: engine.approvalSummary(),
-      notifications: engine.listNotifications({ limit: 25 }),
-    });
-  });
+  router.get('/approvals', asyncHandler(async (_req, res) => {
+    const [pending, counts, notifications] = await Promise.all([
+      engine.listPendingApprovals(),
+      engine.approvalSummary(),
+      engine.listNotifications({ limit: 25 }),
+    ]);
+    res.json({ pending, counts, notifications });
+  }));
 
-  router.get('/notifications', (req, res) => {
+  router.get('/notifications', asyncHandler(async (req, res) => {
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
     const unreadOnly = req.query.unread === '1' || req.query.unread === 'true';
-    res.json({
-      notifications: engine.listNotifications({ limit, unreadOnly }),
-      unread: engine.approvalSummary().unread,
-    });
-  });
+    const [notifications, summary] = await Promise.all([
+      engine.listNotifications({ limit, unreadOnly }),
+      engine.approvalSummary(),
+    ]);
+    res.json({ notifications, unread: summary.unread });
+  }));
 
-  router.post('/notifications/read-all', (_req, res) => {
-    res.json({ updated: engine.markAllNotificationsRead() });
-  });
+  router.post('/notifications/read-all', asyncHandler(async (_req, res) => {
+    res.json({ updated: await engine.markAllNotificationsRead() });
+  }));
 
-  router.post('/notifications/:id/read', (req, res) => {
+  router.post('/notifications/:id/read', asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid notification id' });
-    const notification = engine.markNotificationRead(id);
+    const notification = await engine.markNotificationRead(id);
     if (!notification) return res.status(404).json({ error: 'Notification not found' });
     res.json(notification);
-  });
+  }));
 
-  router.post('/quotes/build', async (req, res) => {
+  router.post('/quotes/build', asyncHandler(async (req, res) => {
     const parsed = buildSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Send a sessionId.' });
     try {
@@ -94,17 +97,17 @@ export function createQuoteRouter(engine: SupportEngine): Router {
     } catch (error) {
       res.status(422).json({ error: error instanceof Error ? error.message : 'Could not build the quote.' });
     }
-  });
+  }));
 
-  router.get('/quotes/:id', (req, res) => {
+  router.get('/quotes/:id', asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid quote id' });
-    const found = engine.getQuote(id);
+    const found = await engine.getQuote(id);
     if (!found) return res.status(404).json({ error: 'Quote not found' });
     res.json(found);
-  });
+  }));
 
-  router.patch('/quotes/:id', (req, res) => {
+  router.patch('/quotes/:id', asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid quote id' });
     const parsed = editSchema.safeParse(req.body);
@@ -117,7 +120,7 @@ export function createQuoteRouter(engine: SupportEngine): Router {
       ? Object.fromEntries(parsed.data.items.map((item) => [item.id, item.quantity]))
       : undefined;
     try {
-      const updated = engine.editQuote(
+      const updated = await engine.editQuote(
         id,
         { marginPercent: parsed.data.marginPercent, quantities },
         res.locals.admin?.id ?? null,
@@ -126,9 +129,9 @@ export function createQuoteRouter(engine: SupportEngine): Router {
     } catch (error) {
       res.status(quoteErrorStatus(error)).json({ error: quoteErrorMessage(error) });
     }
-  });
+  }));
 
-  router.post('/quotes/:id/approve', async (req, res) => {
+  router.post('/quotes/:id/approve', asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid quote id' });
     try {
@@ -137,9 +140,9 @@ export function createQuoteRouter(engine: SupportEngine): Router {
     } catch (error) {
       res.status(quoteErrorStatus(error)).json({ error: quoteErrorMessage(error) });
     }
-  });
+  }));
 
-  router.post('/quotes/:id/reject', async (req, res) => {
+  router.post('/quotes/:id/reject', asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid quote id' });
     const parsed = rejectSchema.safeParse(req.body ?? {});
@@ -150,7 +153,7 @@ export function createQuoteRouter(engine: SupportEngine): Router {
     } catch (error) {
       res.status(quoteErrorStatus(error)).json({ error: quoteErrorMessage(error) });
     }
-  });
+  }));
 
   return router;
 }
@@ -164,9 +167,9 @@ function quoteErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Could not update the quote.';
 }
 
-function settingsPayload(engine: SupportEngine) {
+async function settingsPayload(engine: SupportEngine) {
   return {
-    quoteMarginPercent: engine.getQuoteMarginPercent(),
+    quoteMarginPercent: await engine.getQuoteMarginPercent(),
     minMarginPercent: MIN_QUOTE_MARGIN,
     maxMarginPercent: MAX_QUOTE_MARGIN,
   };

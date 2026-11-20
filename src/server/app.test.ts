@@ -47,7 +47,7 @@ describe('admin API protection', () => {
   const open: Harness[] = [];
 
   before(async () => {
-    db = openDatabase(':memory:');
+    db = await openDatabase(':memory:');
     auth = new AdminAuth(db, { sessionHours: 1 });
     await auth.createAdmin('owner', PASSWORD);
     harness = await startServer(db, auth, WEBHOOK_SECRET);
@@ -56,7 +56,7 @@ describe('admin API protection', () => {
   after(async () => {
     await harness.close();
     while (open.length) await open.pop()?.close();
-    db.close();
+    await db.close();
   });
 
   it('keeps the health check public', async () => {

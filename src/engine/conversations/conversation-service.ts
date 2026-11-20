@@ -1,5 +1,6 @@
 import type { DB } from '../../db/database.js';
 import type { SessionRecord } from '../types.js';
+import * as adminsRepo from '../../db/repositories/admins.js';
 import * as conversationsRepo from '../../db/repositories/conversations.js';
 import type { ConversationMode, ConversationRecord } from '../../db/repositories/conversations.js';
 import * as logsRepo from '../../db/repositories/logs.js';
@@ -69,7 +70,7 @@ export class ConversationService {
     return new Date(this.now().getTime() + this.idleMinutes * 60_000).toISOString().slice(0, 19).replace('T', ' ');
   }
 
-  ensure(session: SessionRecord, displayName?: string): ConversationRecord {
+  async ensure(session: SessionRecord, displayName?: string): Promise<ConversationRecord> {
     return conversationsRepo.upsertConversation(this.options.db, {
       sessionId: session.id,
       channel: session.channel,
@@ -78,40 +79,40 @@ export class ConversationService {
     });
   }
 
-  get(sessionId: string): ConversationRecord | undefined {
+  async get(sessionId: string): Promise<ConversationRecord | undefined> {
     return conversationsRepo.getConversation(this.options.db, sessionId);
   }
 
   /** Dashboard-shaped view of a single conversation. */
-  summary(sessionId: string): ConversationSummary | undefined {
-    const row = this.get(sessionId);
+  async summary(sessionId: string): Promise<ConversationSummary | undefined> {
+    const row = await this.get(sessionId);
     return row ? this.toSummary(row) : undefined;
   }
 
   /** True when the AI is allowed to answer for this session. */
-  isAiActive(sessionId: string): boolean {
-    const conversation = this.get(sessionId);
+  async isAiActive(sessionId: string): Promise<boolean> {
+    const conversation = await this.get(sessionId);
     if (!conversation) return true;
     if (conversation.status === 'closed') return false;
     return conversation.mode === 'ai';
   }
 
-  list(limit = 100): ConversationSummary[] {
-    const rows = conversationsRepo.listConversations(this.options.db, limit);
-    return rows.map((row) => this.toSummary(row));
+  async list(limit = 100): Promise<ConversationSummary[]> {
+    const rows = await conversationsRepo.listConversations(this.options.db, limit);
+    return Promise.all(rows.map((row) => this.toSummary(row)));
   }
 
   /** Sessions waiting for a human: paused or taken over, with unread customer messages. */
-  listNeedingHuman(limit = 100): ConversationSummary[] {
-    return this.list(limit)
+  async listNeedingHuman(limit = 100): Promise<ConversationSummary[]> {
+    return (await this.list(limit))
       .filter((row) => row.status === 'open' && row.mode !== 'ai')
       .sort((a, b) => (b.unreadCount || 0) - (a.unreadCount || 0));
   }
 
   /** Records a customer message and notifies admins when no human owns the conversation. */
-  recordInbound(session: SessionRecord, text: string, displayName?: string): ConversationRecord {
-    const conversation = this.ensure(session, displayName);
-    const updated = conversationsRepo.updateConversation(this.options.db, session.id, {
+  async recordInbound(session: SessionRecord, text: string, displayName?: string): Promise<ConversationRecord> {
+    const conversation = await this.ensure(session, displayName);
+    const updated = await conversationsRepo.updateConversation(this.options.db, session.id, {
       last_inbound_at: this.sqlNow(),
       unread_count: conversation.unread_count + 1,
       status: 'open',
@@ -121,13 +122,13 @@ export class ConversationService {
     });
 
     if (conversation.mode !== 'ai') {
-      notificationsRepo.createNotification(this.options.db, {
+      await notificationsRepo.createNotification(this.options.db, {
         kind: 'conversation_message',
         session_id: session.id,
         title: `New customer message on ${session.channel}`,
         body: `${session.external_user_id}: ${text.slice(0, 280)}`,
       });
-      logsRepo.createLog(this.options.db, {
+      await logsRepo.createLog(this.options.db, {
         channel: session.channel,
         external_user_id: session.external_user_id,
         session_id: session.id,
@@ -141,8 +142,8 @@ export class ConversationService {
   }
 
   /** Records an outbound message and refreshes the idle deadline for human-owned chats. */
-  recordOutbound(session: SessionRecord, text: string): ConversationRecord | undefined {
-    const conversation = this.get(session.id);
+  async recordOutbound(session: SessionRecord, _text: string): Promise<ConversationRecord | undefined> {
+    const conversation = await this.get(session.id);
     if (!conversation) return undefined;
     return conversationsRepo.updateConversation(this.options.db, session.id, {
       last_outbound_at: this.sqlNow(),
@@ -152,10 +153,10 @@ export class ConversationService {
   }
 
   /** Silences the AI without giving the conversation to anyone. */
-  pauseAi(sessionId: string, reason = 'paused by admin'): ConversationRecord | undefined {
-    const conversation = this.get(sessionId);
+  async pauseAi(sessionId: string, reason = 'paused by admin'): Promise<ConversationRecord | undefined> {
+    const conversation = await this.get(sessionId);
     if (!conversation) return undefined;
-    const updated = conversationsRepo.updateConversation(this.options.db, sessionId, {
+    const updated = await conversationsRepo.updateConversation(this.options.db, sessionId, {
       mode: 'paused',
       status: 'open',
       taken_over_by: null,
@@ -163,32 +164,32 @@ export class ConversationService {
       closed_at: null,
       closed_reason: '',
     });
-    this.log(sessionId, 'conversation.ai_paused', reason);
+    await this.log(sessionId, 'conversation.ai_paused', reason);
     return updated;
   }
 
   /** Gives the conversation to a human agent and stops the AI from replying. */
-  takeOver(sessionId: string, adminId: number | null, agentName?: string): ConversationRecord | undefined {
-    const conversation = this.get(sessionId);
+  async takeOver(sessionId: string, adminId: number | null, agentName?: string): Promise<ConversationRecord | undefined> {
+    const conversation = await this.get(sessionId);
     if (!conversation) return undefined;
-    const updated = conversationsRepo.updateConversation(this.options.db, sessionId, {
+    const updated = await conversationsRepo.updateConversation(this.options.db, sessionId, {
       mode: 'human',
       status: 'open',
-      taken_over_by: this.resolveAdminId(adminId),
+      taken_over_by: await this.resolveAdminId(adminId),
       assigned_agent_name: agentName ?? '',
       idle_deadline_at: this.deadline(),
       closed_at: null,
       closed_reason: '',
     });
-    this.log(sessionId, 'conversation.taken_over', `Conversation taken over by admin ${adminId ?? 'unknown'}.`);
+    await this.log(sessionId, 'conversation.taken_over', `Conversation taken over by admin ${adminId ?? 'unknown'}.`);
     return updated;
   }
 
   /** Hands the conversation back to the AI. */
-  handBack(sessionId: string, adminId: number | null): ConversationRecord | undefined {
-    const conversation = this.get(sessionId);
+  async handBack(sessionId: string, adminId: number | null): Promise<ConversationRecord | undefined> {
+    const conversation = await this.get(sessionId);
     if (!conversation) return undefined;
-    const updated = conversationsRepo.updateConversation(this.options.db, sessionId, {
+    const updated = await conversationsRepo.updateConversation(this.options.db, sessionId, {
       mode: 'ai',
       status: 'open',
       taken_over_by: null,
@@ -197,7 +198,7 @@ export class ConversationService {
       closed_at: null,
       closed_reason: '',
     });
-    this.log(sessionId, 'conversation.handed_back', `Conversation handed back to the AI by admin ${adminId ?? 'unknown'}.`);
+    await this.log(sessionId, 'conversation.handed_back', `Conversation handed back to the AI by admin ${adminId ?? 'unknown'}.`);
     return updated;
   }
 
@@ -208,10 +209,10 @@ export class ConversationService {
     text: string,
     deliver: (channel: string, externalUserId: string, text: string) => Promise<boolean>,
   ): Promise<AdminReplyResult> {
-    const conversation = this.get(sessionId);
+    const conversation = await this.get(sessionId);
     if (!conversation) throw new Error('Conversation not found.');
 
-    messagesRepo.appendMessage(this.options.db, {
+    await messagesRepo.appendMessage(this.options.db, {
       session_id: sessionId,
       channel: conversation.channel,
       external_user_id: conversation.external_user_id,
@@ -224,7 +225,7 @@ export class ConversationService {
     try {
       delivered = await deliver(conversation.channel, conversation.external_user_id, text);
     } catch (error) {
-      logsRepo.createLog(this.options.db, {
+      await logsRepo.createLog(this.options.db, {
         channel: conversation.channel,
         external_user_id: conversation.external_user_id,
         session_id: sessionId,
@@ -235,14 +236,14 @@ export class ConversationService {
       });
     }
 
-    conversationsRepo.updateConversation(this.options.db, sessionId, {
+    await conversationsRepo.updateConversation(this.options.db, sessionId, {
       last_outbound_at: this.sqlNow(),
       last_human_reply_at: this.sqlNow(),
       unread_count: 0,
       idle_deadline_at: conversation.mode === 'ai' ? null : this.deadline(),
     });
 
-    logsRepo.createLog(this.options.db, {
+    await logsRepo.createLog(this.options.db, {
       channel: conversation.channel,
       external_user_id: conversation.external_user_id,
       session_id: sessionId,
@@ -252,14 +253,14 @@ export class ConversationService {
       payload: { adminId, delivered },
     });
 
-    return { message: text, delivered, conversation: this.get(sessionId)! };
+    return { message: text, delivered, conversation: (await this.get(sessionId))! };
   }
 
   /** Closes conversations that a human left idle past the deadline. */
-  closeIdleConversations(): ConversationRecord[] {
-    const due = conversationsRepo.listIdleConversations(this.options.db, this.sqlNow());
+  async closeIdleConversations(): Promise<ConversationRecord[]> {
+    const due = await conversationsRepo.listIdleConversations(this.options.db, this.sqlNow());
     for (const conversation of due) {
-      conversationsRepo.updateConversation(this.options.db, conversation.session_id, {
+      await conversationsRepo.updateConversation(this.options.db, conversation.session_id, {
         status: 'closed',
         mode: 'ai',
         taken_over_by: null,
@@ -267,22 +268,25 @@ export class ConversationService {
         closed_at: this.sqlNow(),
         closed_reason: `idle for more than ${this.idleMinutes} minutes`,
       });
-      this.log(conversation.session_id, 'conversation.idle_closed', `Conversation closed after ${this.idleMinutes} minutes of inactivity.`);
+      await this.log(
+        conversation.session_id,
+        'conversation.idle_closed',
+        `Conversation closed after ${this.idleMinutes} minutes of inactivity.`,
+      );
     }
     return due;
   }
 
   /** Only references admins that exist, so the foreign key stays valid. */
-  private resolveAdminId(adminId: number | null): number | null {
+  private async resolveAdminId(adminId: number | null): Promise<number | null> {
     if (adminId === null) return null;
-    const row = this.options.db.prepare('SELECT id FROM admin_users WHERE id = ?').get(adminId) as { id: number } | undefined;
-    return row ? row.id : null;
+    return (await adminsRepo.adminExists(this.options.db, adminId)) ? adminId : null;
   }
 
-  private log(sessionId: string, event: string, message: string): void {
-    const conversation = this.get(sessionId);
+  private async log(sessionId: string, event: string, message: string): Promise<void> {
+    const conversation = await this.get(sessionId);
     if (!conversation) return;
-    logsRepo.createLog(this.options.db, {
+    await logsRepo.createLog(this.options.db, {
       channel: conversation.channel,
       external_user_id: conversation.external_user_id,
       session_id: sessionId,
@@ -293,8 +297,8 @@ export class ConversationService {
     });
   }
 
-  private toSummary(row: ConversationRecord): ConversationSummary {
-    const messages = messagesRepo.listRecentMessages(this.options.db, row.session_id, 1);
+  private async toSummary(row: ConversationRecord): Promise<ConversationSummary> {
+    const messages = await messagesRepo.listRecentMessages(this.options.db, row.session_id, 1);
     const last = messages[0];
     return {
       sessionId: row.session_id,

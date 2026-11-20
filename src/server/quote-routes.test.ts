@@ -20,7 +20,7 @@ describe('quote API', () => {
   let quoteSessionId: string;
 
   before(async () => {
-    db = openDatabase(':memory:');
+    db = await openDatabase(':memory:');
     const auth = new AdminAuth(db, { sessionHours: 1 });
     await auth.createAdmin('owner', PASSWORD);
     const engine = new SupportEngine(db, {
@@ -32,14 +32,14 @@ describe('quote API', () => {
       temperature: 0,
       tenantId: 'test',
     });
-    const workflow = engine.createService({
+    const workflow = await engine.createService({
       name: 'Workflow Automation',
       description: '',
       category: 'workflow',
       status: 'available',
       availability_note: '',
     });
-    publishPriceTable(db, {
+    await publishPriceTable(db, {
       serviceId: workflow.id,
       sourceFilename: 'workflow.csv',
       uploadedBy: null,
@@ -68,10 +68,10 @@ describe('quote API', () => {
     assert.ok(cookie, 'login should set the session cookie');
   });
 
-  after(() => {
+  after(async () => {
     server.closeAllConnections();
     server.close();
-    db.close();
+    await db.close();
   });
 
   it('requires an admin session for settings and quotes', async () => {

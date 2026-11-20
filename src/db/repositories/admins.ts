@@ -1,4 +1,4 @@
-import type { DB } from '../database.js';
+import type { DBExecutor } from '../database.js';
 
 export interface AdminRecord {
   id: number;
@@ -21,72 +21,82 @@ interface CredentialRow {
 }
 
 function map(row: AdminRow): AdminRecord {
-  return { ...row, disabled: Boolean(row.disabled) };
+  return { ...row, id: Number(row.id), disabled: Boolean(row.disabled) };
 }
 
-export function countAdmins(db: DB): number {
-  return (db.prepare('SELECT COUNT(*) AS count FROM admin_users').get() as { count: number }).count;
+export async function countAdmins(db: DBExecutor): Promise<number> {
+  const row = await db.queryOne<{ count: number }>('SELECT COUNT(*)::int AS count FROM admin_users');
+  return Number(row?.count ?? 0);
 }
 
-export function createAdmin(
-  db: DB,
+export async function adminExists(db: DBExecutor, id: number): Promise<boolean> {
+  const row = await db.queryOne<{ id: number }>('SELECT id FROM admin_users WHERE id = $1', [id]);
+  return Boolean(row);
+}
+
+export async function createAdmin(
+  db: DBExecutor,
   input: { username: string; passwordHash: string; displayName: string },
-): AdminRecord {
-  const info = db.prepare(
-    `INSERT INTO admin_users (username, password_hash, display_name) VALUES (@username, @passwordHash, @displayName)`,
-  ).run(input);
-  return map(
-    db.prepare(
-      'SELECT id, username, display_name, disabled, created_at, last_login_at FROM admin_users WHERE id = ?',
-    ).get(Number(info.lastInsertRowid)) as AdminRow,
+): Promise<AdminRecord> {
+  const row = await db.queryOne<AdminRow>(
+    `INSERT INTO admin_users (username, password_hash, display_name)
+     VALUES ($1, $2, $3)
+     RETURNING id, username, display_name, disabled, created_at, last_login_at`,
+    [input.username, input.passwordHash, input.displayName],
+  );
+  return map(row!);
+}
+
+export async function findAdminCredentials(db: DBExecutor, username: string): Promise<CredentialRow | undefined> {
+  const row = await db.queryOne<CredentialRow>(
+    'SELECT id, username, password_hash, disabled FROM admin_users WHERE LOWER(username) = LOWER($1)',
+    [username],
+  );
+  return row ? { ...row, id: Number(row.id), disabled: Number(row.disabled) } : undefined;
+}
+
+export async function insertSession(
+  db: DBExecutor,
+  input: { tokenHash: string; adminId: number; expiresAt: string },
+): Promise<void> {
+  await db.query(
+    'INSERT INTO admin_sessions (token_hash, admin_id, expires_at) VALUES ($1, $2, $3)',
+    [input.tokenHash, input.adminId, input.expiresAt],
   );
 }
 
-export function findAdminCredentials(db: DB, username: string): CredentialRow | undefined {
-  return db.prepare(
-    'SELECT id, username, password_hash, disabled FROM admin_users WHERE username = ?',
-  ).get(username) as CredentialRow | undefined;
-}
-
-export function insertSession(
-  db: DB,
-  input: { tokenHash: string; adminId: number; expiresAt: string },
-): void {
-  db.prepare(
-    'INSERT INTO admin_sessions (token_hash, admin_id, expires_at) VALUES (@tokenHash, @adminId, @expiresAt)',
-  ).run(input);
-}
-
-export function findActiveSession(
-  db: DB,
+export async function findActiveSession(
+  db: DBExecutor,
   tokenHash: string,
   nowIso: string,
-): { id: number; username: string; display_name: string } | undefined {
-  return db.prepare(
+): Promise<{ id: number; username: string; display_name: string } | undefined> {
+  const row = await db.queryOne<{ id: number; username: string; display_name: string }>(
     `SELECT u.id AS id, u.username AS username, u.display_name AS display_name
      FROM admin_sessions s
      JOIN admin_users u ON u.id = s.admin_id
-     WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled = 0`,
-  ).get(tokenHash, nowIso) as { id: number; username: string; display_name: string } | undefined;
+     WHERE s.token_hash = $1 AND s.expires_at > $2 AND u.disabled = 0`,
+    [tokenHash, nowIso],
+  );
+  return row ? { ...row, id: Number(row.id) } : undefined;
 }
 
-export function deleteSession(db: DB, tokenHash: string): void {
-  db.prepare('DELETE FROM admin_sessions WHERE token_hash = ?').run(tokenHash);
+export async function deleteSession(db: DBExecutor, tokenHash: string): Promise<void> {
+  await db.query('DELETE FROM admin_sessions WHERE token_hash = $1', [tokenHash]);
 }
 
-export function deleteExpiredSessions(db: DB, nowIso: string): void {
-  db.prepare('DELETE FROM admin_sessions WHERE expires_at <= ?').run(nowIso);
+export async function deleteExpiredSessions(db: DBExecutor, nowIso: string): Promise<void> {
+  await db.query('DELETE FROM admin_sessions WHERE expires_at <= $1', [nowIso]);
 }
 
-export function touchLastLogin(db: DB, id: number, nowIso: string): void {
-  db.prepare('UPDATE admin_users SET last_login_at = ? WHERE id = ?').run(nowIso, id);
+export async function touchLastLogin(db: DBExecutor, id: number, nowIso: string): Promise<void> {
+  await db.query('UPDATE admin_users SET last_login_at = $1 WHERE id = $2', [nowIso, id]);
 }
 
-export function updateAdminPassword(db: DB, id: number, passwordHash: string): boolean {
-  const info = db.prepare('UPDATE admin_users SET password_hash = ? WHERE id = ?').run(passwordHash, id);
-  return info.changes > 0;
+export async function updateAdminPassword(db: DBExecutor, id: number, passwordHash: string): Promise<boolean> {
+  const res = await db.query('UPDATE admin_users SET password_hash = $1 WHERE id = $2', [passwordHash, id]);
+  return res.rowCount > 0;
 }
 
-export function deleteAdminSessions(db: DB, adminId: number): void {
-  db.prepare('DELETE FROM admin_sessions WHERE admin_id = ?').run(adminId);
+export async function deleteAdminSessions(db: DBExecutor, adminId: number): Promise<void> {
+  await db.query('DELETE FROM admin_sessions WHERE admin_id = $1', [adminId]);
 }

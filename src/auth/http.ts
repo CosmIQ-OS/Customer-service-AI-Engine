@@ -15,15 +15,19 @@ export function readCookie(req: Request, name: string): string | undefined {
   return undefined;
 }
 
-export function requireAdmin(auth: AdminAuth) {
+export function requireAdmin(auth: AdminAuth): RequestHandler {
   return (req: Request, res: Response, next: NextFunction) => {
-    const admin = auth.resolve(readCookie(req, SESSION_COOKIE));
-    if (!admin) {
-      res.status(401).json({ error: 'Admin login required' });
-      return;
-    }
-    res.locals.admin = admin;
-    next();
+    auth
+      .resolve(readCookie(req, SESSION_COOKIE))
+      .then((admin) => {
+        if (!admin) {
+          res.status(401).json({ error: 'Admin login required' });
+          return;
+        }
+        res.locals.admin = admin;
+        next();
+      })
+      .catch(next);
   };
 }
 

@@ -1,4 +1,4 @@
-import type { DB } from '../database.js';
+import { UTC_NOW_SQL, type DB, type DBExecutor } from '../database.js';
 import { applyMargin, normalizeMarginPercent } from '../../pricing/margin.js';
 
 export type QuoteStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'expired' | 'superseded';
@@ -57,29 +57,66 @@ export interface QuoteItemInput {
   lineTotalPaise: number;
 }
 
-export function getQuote(db: DB, id: number): QuoteRecord | undefined {
-  return db.prepare('SELECT * FROM quotes WHERE id = ?').get(id) as QuoteRecord | undefined;
+function mapQuote(row: QuoteRecord): QuoteRecord {
+  return {
+    ...row,
+    id: Number(row.id),
+    intake_id: row.intake_id === null ? null : Number(row.intake_id),
+    service_id: Number(row.service_id),
+    margin_percent: Number(row.margin_percent),
+    subtotal_paise: Number(row.subtotal_paise),
+    total_paise: Number(row.total_paise),
+    margin_paise: Number(row.margin_paise),
+    approved_by: row.approved_by === null ? null : Number(row.approved_by),
+    alert_count: Number(row.alert_count),
+    decided_by: row.decided_by === null ? null : Number(row.decided_by),
+  };
 }
 
-export function listQuotes(db: DB, limit = 50): QuoteRecord[] {
-  return db.prepare(
-    'SELECT * FROM quotes ORDER BY created_at DESC, id DESC LIMIT ?',
-  ).all(limit) as QuoteRecord[];
+function mapItem(row: QuoteItemRecord): QuoteItemRecord {
+  return {
+    ...row,
+    id: Number(row.id),
+    quote_id: Number(row.quote_id),
+    price_item_id: row.price_item_id === null ? null : Number(row.price_item_id),
+    quantity: Number(row.quantity),
+    admin_unit_price_paise: Number(row.admin_unit_price_paise),
+    quoted_unit_price_paise: Number(row.quoted_unit_price_paise),
+    line_total_paise: Number(row.line_total_paise),
+    sort_order: Number(row.sort_order),
+  };
 }
 
-export function listQuoteItems(db: DB, quoteId: number): QuoteItemRecord[] {
-  return db.prepare(
-    'SELECT * FROM quote_items WHERE quote_id = ? ORDER BY sort_order ASC',
-  ).all(quoteId) as QuoteItemRecord[];
+export async function getQuote(db: DBExecutor, id: number): Promise<QuoteRecord | undefined> {
+  const row = await db.queryOne<QuoteRecord>('SELECT * FROM quotes WHERE id = $1', [id]);
+  return row ? mapQuote(row) : undefined;
 }
 
-export function latestQuoteForSession(db: DB, sessionId: string): QuoteRecord | undefined {
-  return db.prepare(
-    'SELECT * FROM quotes WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
-  ).get(sessionId) as QuoteRecord | undefined;
+export async function listQuotes(db: DBExecutor, limit = 50): Promise<QuoteRecord[]> {
+  const { rows } = await db.query<QuoteRecord>(
+    'SELECT * FROM quotes ORDER BY created_at DESC, id DESC LIMIT $1',
+    [limit],
+  );
+  return rows.map(mapQuote);
 }
 
-export function createQuote(
+export async function listQuoteItems(db: DBExecutor, quoteId: number): Promise<QuoteItemRecord[]> {
+  const { rows } = await db.query<QuoteItemRecord>(
+    'SELECT * FROM quote_items WHERE quote_id = $1 ORDER BY sort_order ASC',
+    [quoteId],
+  );
+  return rows.map(mapItem);
+}
+
+export async function latestQuoteForSession(db: DBExecutor, sessionId: string): Promise<QuoteRecord | undefined> {
+  const row = await db.queryOne<QuoteRecord>(
+    'SELECT * FROM quotes WHERE session_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1',
+    [sessionId],
+  );
+  return row ? mapQuote(row) : undefined;
+}
+
+export async function createQuote(
   db: DB,
   input: {
     sessionId: string;
@@ -92,10 +129,11 @@ export function createQuote(
     notes: string;
     items: QuoteItemInput[];
   },
-): QuoteRecord {
+): Promise<QuoteRecord> {
   if (input.items.length === 0) throw new Error('A quote needs at least one item.');
-  return db.transaction(() => {
-    const { next } = db.prepare('SELECT COALESCE(MAX(id), 0) + 1 AS next FROM quotes').get() as { next: number };
+  return db.transaction(async (tx) => {
+    const nextRow = await tx.queryOne<{ next: number }>('SELECT (COALESCE(MAX(id), 0) + 1)::int AS next FROM quotes');
+    const next = Number(nextRow?.next ?? 1);
     const quoteNumber = `Q-${new Date().getUTCFullYear()}-${String(next).padStart(4, '0')}`;
     const subtotalPaise = input.items.reduce(
       (total, item) => total + Math.round(item.adminUnitPricePaise * item.quantity),
@@ -103,120 +141,152 @@ export function createQuote(
     );
     const totalPaise = input.items.reduce((total, item) => total + item.lineTotalPaise, 0);
 
-    const info = db.prepare(
+    const quote = await tx.queryOne<QuoteRecord>(
       `INSERT INTO quotes
         (quote_number, session_id, channel, external_user_id, intake_id, service_id, service_name,
          status, margin_percent, subtotal_paise, total_paise, margin_paise, notes, created_by)
        VALUES
-        (@quoteNumber, @sessionId, @channel, @externalUserId, @intakeId, @serviceId, @serviceName,
-         'draft', @marginPercent, @subtotalPaise, @totalPaise, @marginPaise, @notes, 'pricing_agent')`,
-    ).run({
-      quoteNumber,
-      sessionId: input.sessionId,
-      channel: input.channel,
-      externalUserId: input.externalUserId,
-      intakeId: input.intakeId,
-      serviceId: input.serviceId,
-      serviceName: input.serviceName,
-      marginPercent: input.marginPercent,
-      subtotalPaise,
-      totalPaise,
-      marginPaise: totalPaise - subtotalPaise,
-      notes: input.notes,
-    });
-    const quoteId = Number(info.lastInsertRowid);
-
-    const insertItem = db.prepare(
-      `INSERT INTO quote_items
-        (quote_id, price_item_id, item_code, description, unit, quantity,
-         admin_unit_price_paise, quoted_unit_price_paise, line_total_paise, sort_order)
-       VALUES
-        (@quoteId, @priceItemId, @itemCode, @description, @unit, @quantity,
-         @adminUnitPricePaise, @quotedUnitPricePaise, @lineTotalPaise, @sortOrder)`,
+        ($1, $2, $3, $4, $5, $6, $7,
+         'draft', $8, $9, $10, $11, $12, 'pricing_agent')
+       RETURNING *`,
+      [
+        quoteNumber,
+        input.sessionId,
+        input.channel,
+        input.externalUserId,
+        input.intakeId,
+        input.serviceId,
+        input.serviceName,
+        input.marginPercent,
+        subtotalPaise,
+        totalPaise,
+        totalPaise - subtotalPaise,
+        input.notes,
+      ],
     );
-    input.items.forEach((item, index) => {
-      insertItem.run({ quoteId, ...item, sortOrder: index + 1 });
-    });
+    const quoteId = Number(quote!.id);
 
-    return getQuote(db, quoteId)!;
-  })();
+    for (let index = 0; index < input.items.length; index += 1) {
+      const item = input.items[index];
+      await tx.query(
+        `INSERT INTO quote_items
+          (quote_id, price_item_id, item_code, description, unit, quantity,
+           admin_unit_price_paise, quoted_unit_price_paise, line_total_paise, sort_order)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          quoteId,
+          item.priceItemId,
+          item.itemCode,
+          item.description,
+          item.unit,
+          item.quantity,
+          item.adminUnitPricePaise,
+          item.quotedUnitPricePaise,
+          item.lineTotalPaise,
+          index + 1,
+        ],
+      );
+    }
+
+    return mapQuote(quote!);
+  });
 }
 
-export function listPendingApprovals(db: DB, limit = 50): QuoteRecord[] {
-  return db.prepare(
+export async function listPendingApprovals(db: DBExecutor, limit = 50): Promise<QuoteRecord[]> {
+  const { rows } = await db.query<QuoteRecord>(
     `SELECT * FROM quotes WHERE status = 'pending_approval'
-     ORDER BY COALESCE(expires_at, created_at) ASC, id ASC LIMIT ?`,
-  ).all(limit) as QuoteRecord[];
+     ORDER BY COALESCE(expires_at, created_at) ASC, id ASC LIMIT $1`,
+    [limit],
+  );
+  return rows.map(mapQuote);
 }
 
-export function countPendingApprovals(db: DB): number {
-  const row = db.prepare("SELECT COUNT(*) AS count FROM quotes WHERE status = 'pending_approval'").get() as {
-    count: number;
-  };
-  return row.count;
+export async function countPendingApprovals(db: DBExecutor): Promise<number> {
+  const row = await db.queryOne<{ count: number }>(
+    "SELECT COUNT(*)::int AS count FROM quotes WHERE status = 'pending_approval'",
+  );
+  return Number(row?.count ?? 0);
 }
 
-export function listPendingForSession(db: DB, sessionId: string, exceptId: number): QuoteRecord[] {
-  return db.prepare(
-    "SELECT * FROM quotes WHERE session_id = ? AND status = 'pending_approval' AND id <> ?",
-  ).all(sessionId, exceptId) as QuoteRecord[];
+export async function listPendingForSession(
+  db: DBExecutor,
+  sessionId: string,
+  exceptId: number,
+): Promise<QuoteRecord[]> {
+  const { rows } = await db.query<QuoteRecord>(
+    "SELECT * FROM quotes WHERE session_id = $1 AND status = 'pending_approval' AND id <> $2",
+    [sessionId, exceptId],
+  );
+  return rows.map(mapQuote);
 }
 
 /** Moves a draft (or refreshes a pending quote) into the admin approval queue. */
-export function submitQuoteForApproval(
-  db: DB,
+export async function submitQuoteForApproval(
+  db: DBExecutor,
   id: number,
   input: { expiresAt: string; nextAlertAt: string },
-): QuoteRecord {
-  const info = db.prepare(
-    `UPDATE quotes SET status = 'pending_approval', expires_at = @expiresAt, next_alert_at = @nextAlertAt,
-       alert_count = 0, updated_at = datetime('now')
-     WHERE id = @id AND status IN ('draft', 'pending_approval')`,
-  ).run({ id, expiresAt: input.expiresAt, nextAlertAt: input.nextAlertAt });
-  if (info.changes === 0) throw new Error('Quote could not be submitted for approval.');
-  return getQuote(db, id)!;
+): Promise<QuoteRecord> {
+  const row = await db.queryOne<QuoteRecord>(
+    `UPDATE quotes
+     SET status = 'pending_approval', expires_at = $1, next_alert_at = $2,
+         alert_count = 0, updated_at = ${UTC_NOW_SQL}
+     WHERE id = $3 AND status IN ('draft', 'pending_approval')
+     RETURNING *`,
+    [input.expiresAt, input.nextAlertAt, id],
+  );
+  if (!row) throw new Error('Quote could not be submitted for approval.');
+  return mapQuote(row);
 }
 
-export function supersedePendingQuotes(db: DB, ids: number[]): number {
-  const stmt = db.prepare(
-    "UPDATE quotes SET status = 'superseded', next_alert_at = NULL, updated_at = datetime('now') WHERE id = ? AND status = 'pending_approval'",
-  );
+export async function supersedePendingQuotes(db: DBExecutor, ids: number[]): Promise<number> {
   let changes = 0;
-  for (const id of ids) changes += stmt.run(id).changes;
+  for (const id of ids) {
+    const res = await db.query(
+      `UPDATE quotes SET status = 'superseded', next_alert_at = NULL, updated_at = ${UTC_NOW_SQL}
+       WHERE id = $1 AND status = 'pending_approval'`,
+      [id],
+    );
+    changes += res.rowCount;
+  }
   return changes;
 }
 
 /** Pending quotes whose 6-hour reminder is due. */
-export function dueForRealert(db: DB, nowSql: string, limit = 50): QuoteRecord[] {
-  return db.prepare(
+export async function dueForRealert(db: DBExecutor, nowSql: string, limit = 50): Promise<QuoteRecord[]> {
+  const { rows } = await db.query<QuoteRecord>(
     `SELECT * FROM quotes WHERE status = 'pending_approval'
-       AND next_alert_at IS NOT NULL AND next_alert_at <= ?
-     ORDER BY next_alert_at ASC, id ASC LIMIT ?`,
-  ).all(nowSql, limit) as QuoteRecord[];
+       AND next_alert_at IS NOT NULL AND next_alert_at <= $1
+     ORDER BY next_alert_at ASC, id ASC LIMIT $2`,
+    [nowSql, limit],
+  );
+  return rows.map(mapQuote);
 }
 
-export function recordRealert(db: DB, id: number, nextAlertAt: string): QuoteRecord {
-  const info = db.prepare(
-    `UPDATE quotes SET alert_count = alert_count + 1, next_alert_at = @nextAlertAt, updated_at = datetime('now')
-     WHERE id = @id AND status = 'pending_approval'`,
-  ).run({ id, nextAlertAt });
-  if (info.changes === 0) throw new Error('Quote is no longer awaiting approval.');
-  return getQuote(db, id)!;
+export async function recordRealert(db: DBExecutor, id: number, nextAlertAt: string): Promise<QuoteRecord> {
+  const row = await db.queryOne<QuoteRecord>(
+    `UPDATE quotes
+     SET alert_count = alert_count + 1, next_alert_at = $1, updated_at = ${UTC_NOW_SQL}
+     WHERE id = $2 AND status = 'pending_approval'
+     RETURNING *`,
+    [nextAlertAt, id],
+  );
+  if (!row) throw new Error('Quote is no longer awaiting approval.');
+  return mapQuote(row);
 }
 
 /** Admin edit: quantities and margin only; item codes, descriptions, units and admin prices stay locked. */
-export function updateQuotePricing(
+export async function updateQuotePricing(
   db: DB,
   id: number,
   input: { marginPercent: number; quantities?: Record<number, number> },
-): QuoteRecord {
-  const quote = getQuote(db, id);
+): Promise<QuoteRecord> {
+  const quote = await getQuote(db, id);
   if (!quote) throw new Error('Quote not found.');
   if (quote.status !== 'draft' && quote.status !== 'pending_approval') {
     throw new Error('Only draft or pending quotes can be edited.');
   }
   const marginPercent = normalizeMarginPercent(input.marginPercent);
-  const items = listQuoteItems(db, id);
+  const items = await listQuoteItems(db, id);
   if (items.length === 0) throw new Error('The quote has no line items.');
   const quantities = input.quantities ?? {};
   const known = new Set(items.map((item) => item.id));
@@ -224,13 +294,9 @@ export function updateQuotePricing(
     if (!known.has(Number(key))) throw new Error('Quote item not found on this quote.');
   }
 
-  return db.transaction(() => {
+  return db.transaction(async (tx) => {
     let subtotalPaise = 0;
     let totalPaise = 0;
-    const updateItem = db.prepare(
-      `UPDATE quote_items SET quantity = @quantity, quoted_unit_price_paise = @quotedUnit,
-         line_total_paise = @lineTotal WHERE id = @id AND quote_id = @quoteId`,
-    );
     for (const item of items) {
       const quantity = quantities[item.id] ?? item.quantity;
       if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 100_000) {
@@ -238,50 +304,53 @@ export function updateQuotePricing(
       }
       const quotedUnit = applyMargin(item.admin_unit_price_paise, marginPercent);
       const lineTotal = Math.round(quotedUnit * quantity);
-      updateItem.run({ id: item.id, quoteId: id, quantity, quotedUnit, lineTotal });
+      await tx.query(
+        `UPDATE quote_items SET quantity = $1, quoted_unit_price_paise = $2, line_total_paise = $3
+         WHERE id = $4 AND quote_id = $5`,
+        [quantity, quotedUnit, lineTotal, item.id, id],
+      );
       subtotalPaise += Math.round(item.admin_unit_price_paise * quantity);
       totalPaise += lineTotal;
     }
-    db.prepare(
-      `UPDATE quotes SET margin_percent = @marginPercent, subtotal_paise = @subtotalPaise,
-         total_paise = @totalPaise, margin_paise = @marginPaise, updated_at = datetime('now')
-       WHERE id = @id`,
-    ).run({
-      id,
-      marginPercent,
-      subtotalPaise,
-      totalPaise,
-      marginPaise: totalPaise - subtotalPaise,
-    });
-    return getQuote(db, id)!;
-  })();
+    const updated = await tx.queryOne<QuoteRecord>(
+      `UPDATE quotes
+       SET margin_percent = $1, subtotal_paise = $2, total_paise = $3,
+           margin_paise = $4, updated_at = ${UTC_NOW_SQL}
+       WHERE id = $5
+       RETURNING *`,
+      [marginPercent, subtotalPaise, totalPaise, totalPaise - subtotalPaise, id],
+    );
+    return mapQuote(updated!);
+  });
 }
 
-export function decideQuote(
-  db: DB,
+export async function decideQuote(
+  db: DBExecutor,
   id: number,
   input: { status: 'approved' | 'rejected'; adminId: number | null; note?: string; decidedAt: string },
-): QuoteRecord {
-  const quote = getQuote(db, id);
+): Promise<QuoteRecord> {
+  const quote = await getQuote(db, id);
   if (!quote) throw new Error('Quote not found.');
   if (quote.status !== 'pending_approval') throw new Error('Only quotes awaiting approval can be decided.');
   const approved = input.status === 'approved';
-  db.prepare(
-    `UPDATE quotes SET status = @status, decision_note = @note, decided_by = @adminId,
-       approved_by = @approvedBy, approved_at = @approvedAt, next_alert_at = NULL, updated_at = datetime('now')
-     WHERE id = @id`,
-  ).run({
-    id,
-    status: input.status,
-    note: input.note ?? '',
-    adminId: input.adminId,
-    approvedBy: approved ? input.adminId : null,
-    approvedAt: approved ? input.decidedAt : null,
-  });
-  return getQuote(db, id)!;
+  const row = await db.queryOne<QuoteRecord>(
+    `UPDATE quotes
+     SET status = $1, decision_note = $2, decided_by = $3,
+         approved_by = $4, approved_at = $5, next_alert_at = NULL, updated_at = ${UTC_NOW_SQL}
+     WHERE id = $6
+     RETURNING *`,
+    [
+      input.status,
+      input.note ?? '',
+      input.adminId,
+      approved ? input.adminId : null,
+      approved ? input.decidedAt : null,
+      id,
+    ],
+  );
+  return mapQuote(row!);
 }
 
-export function markQuoteDelivered(db: DB, id: number, deliveredAt: string): void {
-  db.prepare('UPDATE quotes SET delivered_at = ?, updated_at = datetime(\'now\') WHERE id = ?').run(deliveredAt, id);
+export async function markQuoteDelivered(db: DBExecutor, id: number, deliveredAt: string): Promise<void> {
+  await db.query(`UPDATE quotes SET delivered_at = $1, updated_at = ${UTC_NOW_SQL} WHERE id = $2`, [deliveredAt, id]);
 }
-

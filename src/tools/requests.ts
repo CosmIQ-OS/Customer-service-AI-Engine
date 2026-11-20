@@ -20,8 +20,8 @@ export const createSupportRequestTool: Tool = {
     required: ['body'],
     additionalProperties: false,
   },
-  execute(input, context) {
-    const request = createRequest(context.db, {
+  async execute(input, context) {
+    const request = await createRequest(context.db, {
       channel: context.channel,
       external_user_id: context.externalUserId,
       session_id: context.session.id,
@@ -33,7 +33,7 @@ export const createSupportRequestTool: Tool = {
     });
     return {
       result: { requestId: request.id },
-      observation: `Support request #${request.id} is now logged. The support team will follow up.`, 
+      observation: `Support request #${request.id} is now logged. The support team will follow up.`,
     };
   },
 };

@@ -32,8 +32,8 @@ const cases = JSON.parse(
   readFileSync(resolve(here, 'golden-conversations.json'), 'utf8'),
 ) as GoldenCase[];
 
-function createEngine(): SupportEngine {
-  const db = openDatabase(':memory:');
+async function createEngine(): Promise<SupportEngine> {
+  const db = await openDatabase(':memory:');
   const engine = new SupportEngine(db, {
     sessionTtlMinutes: 120,
     llm: new MockLLMProvider(),
@@ -43,14 +43,14 @@ function createEngine(): SupportEngine {
     temperature: 0,
     tenantId: 'eval',
   });
-  const liveChat = engine.createService({
+  const liveChat = await engine.createService({
     name: 'Live Chat Support',
     description: 'Real-time assistance for account and product questions.',
     category: 'support',
     status: 'available',
     availability_note: 'Mon-Fri 09:00-18:00',
   });
-  publishPriceTable(db, {
+  await publishPriceTable(db, {
     serviceId: liveChat.id,
     sourceFilename: 'eval-live-chat.csv',
     uploadedBy: null,
@@ -59,7 +59,7 @@ function createEngine(): SupportEngine {
       { item_code: 'LC-HOUR', description: 'Live Chat Support hourly support', unit: 'hour', unit_price_paise: 100_000 },
     ],
   });
-  engine.createFaq({
+  await engine.createFaq({
     question: 'What is your refund policy?',
     answer: 'Refunds are issued within 14 days of request.',
     tags: ['refund', 'policy'],
@@ -71,70 +71,74 @@ let passed = 0;
 const failures: string[] = [];
 
 for (const c of cases) {
-  const engine = createEngine();
-  let sessionId = '';
-  for (const step of c.setup ?? []) {
-    const setupResult = await engine.handleMessage({
+  const engine = await createEngine();
+  try {
+    let sessionId = '';
+    for (const step of c.setup ?? []) {
+      const setupResult = await engine.handleMessage({
+        channel: c.channel as never,
+        externalUserId: c.externalUserId,
+        text: step.text,
+      });
+      sessionId = setupResult.sessionId;
+      if (step.action === 'takeover') await engine.takeOverConversation(sessionId, null, 'Eval Admin');
+      if (step.action === 'handback') await engine.handBackConversation(sessionId, null);
+      if (step.action === 'pause') await engine.pauseAi(sessionId);
+    }
+
+    const result = await engine.handleMessage({
       channel: c.channel as never,
       externalUserId: c.externalUserId,
-      text: step.text,
+      text: c.text,
     });
-    sessionId = setupResult.sessionId;
-    if (step.action === 'takeover') engine.takeOverConversation(sessionId, null, 'Eval Admin');
-    if (step.action === 'handback') engine.handBackConversation(sessionId, null);
-    if (step.action === 'pause') engine.pauseAi(sessionId);
-  }
 
-  const result = await engine.handleMessage({
-    channel: c.channel as never,
-    externalUserId: c.externalUserId,
-    text: c.text,
-  });
-
-  const problems: string[] = [];
-  if (c.expect.intent && result.intent !== c.expect.intent) {
-    problems.push(`intent ${result.intent} != ${c.expect.intent}`);
-  }
-  if (c.expect.replyMatches && !result.reply.includes(c.expect.replyMatches)) {
-    problems.push(`reply missing "${c.expect.replyMatches}"`);
-  }
-  if (c.expect.hasRequestId && typeof result.requestId !== 'number') {
-    problems.push('missing requestId');
-  }
-  if (c.expect.nonEmptyReply && !result.reply.trim()) {
-    problems.push('empty reply');
-  }
-  if (c.expect.emptyReply && result.reply.trim()) {
-    problems.push(`expected no reply while a human owns the chat, got "${result.reply.slice(0, 60)}"`);
-  }
-  if (c.expect.quoteCreated) {
-    const quoteId = result.data?.quoteId;
-    if (typeof quoteId !== 'number') {
-      problems.push('missing quoteId');
-    } else if (c.expect.quoteMinTotalPaise !== undefined) {
-      const found = engine.getQuote(quoteId);
-      if (!found) problems.push('quote not found');
-      else if (found.quote.total_paise < c.expect.quoteMinTotalPaise) {
-        problems.push(`quote total ${found.quote.total_paise} below ${c.expect.quoteMinTotalPaise}`);
+    const problems: string[] = [];
+    if (c.expect.intent && result.intent !== c.expect.intent) {
+      problems.push(`intent ${result.intent} != ${c.expect.intent}`);
+    }
+    if (c.expect.replyMatches && !result.reply.includes(c.expect.replyMatches)) {
+      problems.push(`reply missing "${c.expect.replyMatches}"`);
+    }
+    if (c.expect.hasRequestId && typeof result.requestId !== 'number') {
+      problems.push('missing requestId');
+    }
+    if (c.expect.nonEmptyReply && !result.reply.trim()) {
+      problems.push('empty reply');
+    }
+    if (c.expect.emptyReply && result.reply.trim()) {
+      problems.push(`expected no reply while a human owns the chat, got "${result.reply.slice(0, 60)}"`);
+    }
+    if (c.expect.quoteCreated) {
+      const quoteId = result.data?.quoteId;
+      if (typeof quoteId !== 'number') {
+        problems.push('missing quoteId');
+      } else if (c.expect.quoteMinTotalPaise !== undefined) {
+        const found = await engine.getQuote(quoteId);
+        if (!found) problems.push('quote not found');
+        else if (found.quote.total_paise < c.expect.quoteMinTotalPaise) {
+          problems.push(`quote total ${found.quote.total_paise} below ${c.expect.quoteMinTotalPaise}`);
+        }
       }
     }
-  }
-  if (c.expect.quotePendingApproval) {
-    const found = engine.getQuote(result.data?.quoteId as number);
-    if (!found) problems.push('quote not found');
-    else if (found.quote.status !== 'pending_approval') {
-      problems.push(`quote status ${found.quote.status} is not pending_approval`);
-    } else if (!found.quote.expires_at) {
-      problems.push('pending quote has no approval deadline');
+    if (c.expect.quotePendingApproval) {
+      const found = await engine.getQuote(result.data?.quoteId as number);
+      if (!found) problems.push('quote not found');
+      else if (found.quote.status !== 'pending_approval') {
+        problems.push(`quote status ${found.quote.status} is not pending_approval`);
+      } else if (!found.quote.expires_at) {
+        problems.push('pending quote has no approval deadline');
+      }
     }
-  }
 
-  if (problems.length === 0) {
-    passed += 1;
-    console.log(`PASS  ${c.id}  (intent=${result.intent})`);
-  } else {
-    failures.push(`${c.id}: ${problems.join('; ')}`);
-    console.log(`FAIL  ${c.id}  -> ${problems.join('; ')}`);
+    if (problems.length === 0) {
+      passed += 1;
+      console.log(`PASS  ${c.id}  (intent=${result.intent})`);
+    } else {
+      failures.push(`${c.id}: ${problems.join('; ')}`);
+      console.log(`FAIL  ${c.id}  -> ${problems.join('; ')}`);
+    }
+  } finally {
+    await engine.db.close();
   }
 }
 

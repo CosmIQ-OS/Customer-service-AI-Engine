@@ -5,14 +5,14 @@ import * as pricingRepo from '../db/repositories/pricing.js';
 import * as servicesRepo from '../db/repositories/services.js';
 
 const databases: DB[] = [];
-afterEach(() => {
-  while (databases.length) databases.pop()?.close();
+afterEach(async () => {
+  while (databases.length) await databases.pop()?.close();
 });
 
-function setup() {
-  const db = openDatabase(':memory:');
+async function setup() {
+  const db = await openDatabase(':memory:');
   databases.push(db);
-  const service = servicesRepo.createService(db, {
+  const service = await servicesRepo.createService(db, {
     name: 'Workflow Automation',
     description: '',
     category: 'workflow',
@@ -28,9 +28,9 @@ const v1Items = [
 ];
 
 describe('pricing repository', () => {
-  it('publishes version 1 as the active table', () => {
-    const { db, serviceId } = setup();
-    const table = pricingRepo.publishPriceTable(db, {
+  it('publishes version 1 as the active table', async () => {
+    const { db, serviceId } = await setup();
+    const table = await pricingRepo.publishPriceTable(db, {
       serviceId,
       sourceFilename: 'workflow.csv',
       uploadedBy: null,
@@ -41,15 +41,15 @@ describe('pricing repository', () => {
     assert.equal(table.item_count, 2);
     assert.equal(table.currency, 'INR');
     assert.deepEqual(
-      pricingRepo.listPriceItems(db, table.id).map((item) => [item.item_code, item.sort_order]),
+      (await pricingRepo.listPriceItems(db, table.id)).map((item) => [item.item_code, item.sort_order]),
       [['A', 1], ['B', 2]],
     );
   });
 
-  it('supersedes the previous version and keeps its items for history', () => {
-    const { db, serviceId } = setup();
-    const first = pricingRepo.publishPriceTable(db, { serviceId, sourceFilename: 'v1.csv', uploadedBy: null, items: v1Items });
-    const second = pricingRepo.publishPriceTable(db, {
+  it('supersedes the previous version and keeps its items for history', async () => {
+    const { db, serviceId } = await setup();
+    const first = await pricingRepo.publishPriceTable(db, { serviceId, sourceFilename: 'v1.csv', uploadedBy: null, items: v1Items });
+    const second = await pricingRepo.publishPriceTable(db, {
       serviceId,
       sourceFilename: 'v2.csv',
       uploadedBy: null,
@@ -57,39 +57,43 @@ describe('pricing repository', () => {
     });
 
     assert.equal(second.version, 2);
-    assert.equal(pricingRepo.activePriceTable(db, serviceId)?.id, second.id);
+    assert.equal((await pricingRepo.activePriceTable(db, serviceId))?.id, second.id);
     assert.deepEqual(
-      pricingRepo.listPriceTables(db, serviceId).map((table) => [table.version, table.status]),
+      (await pricingRepo.listPriceTables(db, serviceId)).map((table) => [table.version, table.status]),
       [[2, 'active'], [1, 'superseded']],
     );
-    assert.deepEqual(pricingRepo.listPriceItems(db, first.id).map((item) => item.item_code), ['A', 'B']);
+    assert.deepEqual((await pricingRepo.listPriceItems(db, first.id)).map((item) => item.item_code), ['A', 'B']);
   });
 
-  it('rolls back completely when an item insert fails', () => {
-    const { db, serviceId } = setup();
-    const first = pricingRepo.publishPriceTable(db, { serviceId, sourceFilename: 'v1.csv', uploadedBy: null, items: v1Items });
+  it('rolls back completely when an item insert fails', async () => {
+    const { db, serviceId } = await setup();
+    const first = await pricingRepo.publishPriceTable(db, { serviceId, sourceFilename: 'v1.csv', uploadedBy: null, items: v1Items });
 
-    assert.throws(() => pricingRepo.publishPriceTable(db, {
-      serviceId,
-      sourceFilename: 'broken.csv',
-      uploadedBy: null,
-      items: [
-        { item_code: 'X', description: 'One', unit: 'each', unit_price_paise: 1 },
-        { item_code: 'X', description: 'Duplicate', unit: 'each', unit_price_paise: 2 },
-      ],
-    }));
+    await assert.rejects(
+      pricingRepo.publishPriceTable(db, {
+        serviceId,
+        sourceFilename: 'broken.csv',
+        uploadedBy: null,
+        items: [
+          { item_code: 'X', description: 'One', unit: 'each', unit_price_paise: 1 },
+          { item_code: 'X', description: 'Duplicate', unit: 'each', unit_price_paise: 2 },
+        ],
+      }),
+    );
 
-    assert.equal(pricingRepo.activePriceTable(db, serviceId)?.id, first.id);
-    assert.equal(pricingRepo.listPriceTables(db, serviceId).length, 1);
+    assert.equal((await pricingRepo.activePriceTable(db, serviceId))?.id, first.id);
+    assert.equal((await pricingRepo.listPriceTables(db, serviceId)).length, 1);
   });
 
-  it('rejects negative prices at the database level', () => {
-    const { db, serviceId } = setup();
-    assert.throws(() => pricingRepo.publishPriceTable(db, {
-      serviceId,
-      sourceFilename: 'bad.csv',
-      uploadedBy: null,
-      items: [{ item_code: 'N', description: 'Negative', unit: 'each', unit_price_paise: -1 }],
-    }));
+  it('rejects negative prices at the database level', async () => {
+    const { db, serviceId } = await setup();
+    await assert.rejects(
+      pricingRepo.publishPriceTable(db, {
+        serviceId,
+        sourceFilename: 'bad.csv',
+        uploadedBy: null,
+        items: [{ item_code: 'N', description: 'Negative', unit: 'each', unit_price_paise: -1 }],
+      }),
+    );
   });
 });

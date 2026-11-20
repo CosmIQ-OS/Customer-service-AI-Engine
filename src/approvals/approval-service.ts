@@ -15,7 +15,7 @@ export interface ApprovalServiceConfig {
   now?: () => Date;
 }
 
-/** SQLite-compatible UTC timestamp (`YYYY-MM-DD HH:MM:SS`), matching `datetime('now')`. */
+/** UTC SQL timestamp (`YYYY-MM-DD HH:MM:SS`), matching database defaults. */
 export function toSqlTimestamp(date: Date): string {
   return date.toISOString().slice(0, 19).replace('T', ' ');
 }
@@ -44,19 +44,19 @@ export class ApprovalService {
   }
 
   /** Queues a quote for admin approval and alerts the dashboard. */
-  submit(quoteId: number): QuoteRecord {
-    const quote = quotesRepo.getQuote(this.db, quoteId);
+  async submit(quoteId: number): Promise<QuoteRecord> {
+    const quote = await quotesRepo.getQuote(this.db, quoteId);
     if (!quote) throw new Error('Quote not found.');
     if (quote.status !== 'draft' && quote.status !== 'pending_approval') {
       throw new Error('Only draft quotes can be submitted for approval.');
     }
 
     if (quote.session_id) {
-      const others = quotesRepo.listPendingForSession(this.db, quote.session_id, quote.id);
+      const others = await quotesRepo.listPendingForSession(this.db, quote.session_id, quote.id);
       if (others.length > 0) {
-        quotesRepo.supersedePendingQuotes(this.db, others.map((other) => other.id));
-        for (const other of others) notificationsRepo.markQuoteNotificationsRead(this.db, other.id);
-        logsRepo.createLog(this.db, {
+        await quotesRepo.supersedePendingQuotes(this.db, others.map((other) => other.id));
+        for (const other of others) await notificationsRepo.markQuoteNotificationsRead(this.db, other.id);
+        await logsRepo.createLog(this.db, {
           channel: quote.channel,
           external_user_id: quote.external_user_id,
           session_id: quote.session_id,
@@ -69,19 +69,19 @@ export class ApprovalService {
     }
 
     const expiresAt = this.at(this.windowHours);
-    const updated = quotesRepo.submitQuoteForApproval(this.db, quote.id, {
+    const updated = await quotesRepo.submitQuoteForApproval(this.db, quote.id, {
       expiresAt,
       nextAlertAt: expiresAt,
     });
 
-    notificationsRepo.createNotification(this.db, {
+    await notificationsRepo.createNotification(this.db, {
       kind: 'quote_approval',
       quote_id: updated.id,
       session_id: updated.session_id,
       title: `Quote ${updated.quote_number} needs approval`,
       body: `${updated.service_name} · ${formatInr(updated.total_paise)} · customer ${updated.external_user_id}. Reminders repeat every ${this.windowHours} hours until a decision.`,
     });
-    logsRepo.createLog(this.db, {
+    await logsRepo.createLog(this.db, {
       channel: updated.channel,
       external_user_id: updated.external_user_id,
       session_id: updated.session_id,
@@ -93,30 +93,30 @@ export class ApprovalService {
     return updated;
   }
 
-  listPending(limit = 50): QuoteRecord[] {
+  async listPending(limit = 50): Promise<QuoteRecord[]> {
     return quotesRepo.listPendingApprovals(this.db, limit);
   }
 
   /** Pending quotes whose reminder is due. */
-  due(): QuoteRecord[] {
+  async due(): Promise<QuoteRecord[]> {
     return quotesRepo.dueForRealert(this.db, toSqlTimestamp(this.now()));
   }
 
   /** Re-alerts admins and schedules the next reminder one window later. */
-  reAlert(quoteId: number): { quote: QuoteRecord; notification: AdminNotificationRecord } {
-    const quote = quotesRepo.getQuote(this.db, quoteId);
+  async reAlert(quoteId: number): Promise<{ quote: QuoteRecord; notification: AdminNotificationRecord }> {
+    const quote = await quotesRepo.getQuote(this.db, quoteId);
     if (!quote || quote.status !== 'pending_approval') {
       throw new Error('Quote is not awaiting approval.');
     }
-    const updated = quotesRepo.recordRealert(this.db, quoteId, this.at(this.windowHours));
-    const notification = notificationsRepo.createNotification(this.db, {
+    const updated = await quotesRepo.recordRealert(this.db, quoteId, this.at(this.windowHours));
+    const notification = await notificationsRepo.createNotification(this.db, {
       kind: 'quote_realert',
       quote_id: updated.id,
       session_id: updated.session_id,
       title: `Reminder: quote ${updated.quote_number} still needs approval`,
       body: `${updated.service_name} · ${formatInr(updated.total_paise)} · customer ${updated.external_user_id}. Reminder ${updated.alert_count}; next one in ${this.windowHours} hours.`,
     });
-    logsRepo.createLog(this.db, {
+    await logsRepo.createLog(this.db, {
       channel: updated.channel,
       external_user_id: updated.external_user_id,
       session_id: updated.session_id,
@@ -128,20 +128,20 @@ export class ApprovalService {
     return { quote: updated, notification };
   }
 
-  decide(
+  async decide(
     quoteId: number,
     decision: 'approved' | 'rejected',
     adminId: number | null,
     note = '',
-  ): QuoteRecord {
-    const updated = quotesRepo.decideQuote(this.db, quoteId, {
+  ): Promise<QuoteRecord> {
+    const updated = await quotesRepo.decideQuote(this.db, quoteId, {
       status: decision,
       adminId,
       note,
       decidedAt: toSqlTimestamp(this.now()),
     });
-    notificationsRepo.markQuoteNotificationsRead(this.db, quoteId);
-    logsRepo.createLog(this.db, {
+    await notificationsRepo.markQuoteNotificationsRead(this.db, quoteId);
+    await logsRepo.createLog(this.db, {
       channel: updated.channel,
       external_user_id: updated.external_user_id,
       session_id: updated.session_id,

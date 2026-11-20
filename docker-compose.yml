@@ -7,7 +7,7 @@ services:
       - .env
     environment:
       PORT: "3001"
-      DB_PATH: /app/data/support.db
+      DB_PATH: /app/data/pglite
     ports:
       - "3001:3001"
     volumes:

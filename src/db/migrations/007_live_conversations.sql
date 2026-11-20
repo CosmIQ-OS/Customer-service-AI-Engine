@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS conversations (
-  session_id TEXT PRIMARY KEY,
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
   channel TEXT NOT NULL,
   external_user_id TEXT NOT NULL,
   display_name TEXT NOT NULL DEFAULT '',
@@ -14,9 +14,8 @@ CREATE TABLE IF NOT EXISTS conversations (
   unread_count INTEGER NOT NULL DEFAULT 0,
   closed_at TEXT,
   closed_reason TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+  created_at TEXT NOT NULL DEFAULT (to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')),
+  updated_at TEXT NOT NULL DEFAULT (to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_conversations_mode ON conversations(mode, status);

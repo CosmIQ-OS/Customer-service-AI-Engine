@@ -18,8 +18,8 @@ export const escalateToHumanTool: Tool = {
     required: ['reason'],
     additionalProperties: false,
   },
-  execute(input, context) {
-    const request = createRequest(context.db, {
+  async execute(input, context) {
+    const request = await createRequest(context.db, {
       channel: context.channel,
       external_user_id: context.externalUserId,
       session_id: context.session.id,

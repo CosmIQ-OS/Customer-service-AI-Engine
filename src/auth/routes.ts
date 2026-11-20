@@ -47,10 +47,14 @@ export function createAuthRouter(auth: AdminAuth, options: AuthRouteOptions): Ro
     }
   });
 
-  router.post('/logout', (req, res) => {
-    auth.logout(readCookie(req, SESSION_COOKIE));
-    res.clearCookie(SESSION_COOKIE, cookieOptions);
-    res.json({ ok: true });
+  router.post('/logout', async (req, res, next) => {
+    try {
+      await auth.logout(readCookie(req, SESSION_COOKIE));
+      res.clearCookie(SESSION_COOKIE, cookieOptions);
+      res.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
   });
 
   router.get('/me', requireAdmin(auth), (_req, res) => {

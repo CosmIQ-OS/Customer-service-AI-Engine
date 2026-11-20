@@ -69,9 +69,26 @@ cp .env.example .env
 
 ```dotenv
 PORT=3001
-DB_PATH=./data/support.db
+DB_PATH=./data/pglite
 LLM_PROVIDER=mock
 ```
+
+### Required for Production on Render + Neon PostgreSQL (Free Tier Safe)
+
+Render Free Tier containers have ephemeral disks that reset on restart/sleep. Connect a permanent free **Neon PostgreSQL** database:
+
+1. Create a free project at <https://neon.tech> and copy the **Pooled connection string**.
+2. In your Render Web Service → **Environment**, add:
+   ```dotenv
+   DATABASE_URL=postgresql://neondb_owner:<password>@<ep-host>-pooler.<region>.aws.neon.tech/neondb?sslmode=require
+   COOKIE_SECURE=true
+   ```
+3. On first boot, the server automatically acquires a PostgreSQL advisory lock, creates all 17 tables, runs migrations `001`–`007`, and seeds CosmIQ services, FAQs, price tables, and the default admin account.
+4. *(Optional)* To copy existing local SQLite data (`data/support.db`) into Neon safely:
+   ```bash
+   DATABASE_URL="postgresql://..." npm run db:migrate-sqlite -- ./data/support.db
+   ```
+   The script opens SQLite read-only, runs inside one atomic PostgreSQL transaction with `ON CONFLICT DO NOTHING`, resets all `SERIAL` sequences, and prints a row-count verification table.
 
 ### Required for a real live test
 

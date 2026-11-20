@@ -40,4 +40,18 @@ describe('loadConfig', () => {
   it('rejects webhook secrets shorter than 16 characters', () => {
     assert.throws(() => loadConfig({ CHANNEL_WEBHOOK_SECRET: 'short' }));
   });
+
+  it('validates DATABASE_URL and DATABASE_URL_UNPOOLED when provided and ignores blank strings', () => {
+    assert.equal(loadConfig({ DATABASE_URL: '', DATABASE_URL_UNPOOLED: '' }).DATABASE_URL, undefined);
+    assert.equal(loadConfig({ DATABASE_URL_UNPOOLED: '' }).DATABASE_URL_UNPOOLED, undefined);
+    assert.equal(
+      loadConfig({
+        DATABASE_URL: 'postgresql://user:pass@ep-cool-pooler.neon.tech/neondb?sslmode=require',
+        DATABASE_URL_UNPOOLED: 'postgresql://user:pass@ep-cool.neon.tech/neondb?sslmode=require',
+      }).DATABASE_URL_UNPOOLED,
+      'postgresql://user:pass@ep-cool.neon.tech/neondb?sslmode=require',
+    );
+    assert.throws(() => loadConfig({ DATABASE_URL: 'sqlite://local.db' }), /postgres/);
+    assert.throws(() => loadConfig({ DATABASE_URL_UNPOOLED: 'http://invalid' }), /postgres/);
+  });
 });

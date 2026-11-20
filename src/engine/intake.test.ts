@@ -6,12 +6,12 @@ import { saveIntakeTool } from '../tools/intake.js';
 import { SupportEngine } from './support-engine.js';
 
 const databases: DB[] = [];
-afterEach(() => {
-  while (databases.length) databases.pop()?.close();
+afterEach(async () => {
+  while (databases.length) await databases.pop()?.close();
 });
 
-function createEngine() {
-  const db = openDatabase(':memory:');
+async function createEngine() {
+  const db = await openDatabase(':memory:');
   databases.push(db);
   const engine = new SupportEngine(db, {
     sessionTtlMinutes: 120,
@@ -22,7 +22,7 @@ function createEngine() {
     temperature: 0,
     tenantId: 'test',
   });
-  const workflow = engine.createService({
+  const workflow = await engine.createService({
     name: 'Workflow Automation',
     description: 'End-to-end business workflows.',
     category: 'workflow',
@@ -39,7 +39,7 @@ function toolResults(result: Awaited<ReturnType<SupportEngine['handleMessage']>>
 
 describe('intake flow', () => {
   it('collects intake across turns, resolves the service, and never states a price', async () => {
-    const { engine, workflow } = createEngine();
+    const { engine, workflow } = await createEngine();
 
     const first = await engine.handleMessage({
       channel: 'telegram',
@@ -50,7 +50,7 @@ describe('intake flow', () => {
     assert.match(first.reply, /tools/i);
     assert.match(first.reply, /service/i);
 
-    let intake = engine.getIntake(first.sessionId);
+    let intake = await engine.getIntake(first.sessionId);
     assert.ok(intake);
     assert.equal(intake.company_name, 'Acme Robotics');
     assert.equal(intake.company_size, '120 employees');
@@ -65,7 +65,7 @@ describe('intake flow', () => {
     assert.equal(second.intent, 'intake');
     assert.equal(second.sessionId, first.sessionId);
 
-    intake = engine.getIntake(first.sessionId);
+    intake = await engine.getIntake(first.sessionId);
     assert.ok(intake);
     assert.equal(intake.current_tools, 'Slack and Notion');
     assert.equal(intake.service_id, workflow.id);
@@ -73,18 +73,18 @@ describe('intake flow', () => {
     assert.equal(intake.status, 'complete');
     assert.doesNotMatch(second.reply, /₹|INR|\bprice\b/i);
 
-    const listed = engine.listIntakes(10).find((record) => record.session_id === first.sessionId);
+    const listed = (await engine.listIntakes(10)).find((record) => record.session_id === first.sessionId);
     assert.equal(listed?.status, 'complete');
   });
 
   it('recalls saved intake details instead of asking again', async () => {
-    const { engine } = createEngine();
+    const { engine } = await createEngine();
     const saved = await engine.handleMessage({
       channel: 'web',
       externalUserId: 'intake-user-2',
       text: 'Company: Beta Labs; Size: 25 people; Tools: Excel; Service: Workflow Automation',
     });
-    assert.equal(engine.getIntake(saved.sessionId)?.status, 'complete');
+    assert.equal((await engine.getIntake(saved.sessionId))?.status, 'complete');
 
     const recall = await engine.handleMessage({
       channel: 'web',
@@ -98,7 +98,7 @@ describe('intake flow', () => {
   });
 
   it('stores the detected language on the session and answers in it', async () => {
-    const { engine } = createEngine();
+    const { engine } = await createEngine();
     const result = await engine.handleMessage({
       channel: 'telegram',
       externalUserId: 'hindi-user',
@@ -113,7 +113,7 @@ describe('intake flow', () => {
   });
 
   it('matches a partial service name and flags a service outside the catalog', async () => {
-    const { engine, workflow } = createEngine();
+    const { engine, workflow } = await createEngine();
     await engine.handleMessage({
       channel: 'web',
       externalUserId: 'intake-user-3',
@@ -138,12 +138,12 @@ describe('intake flow', () => {
   });
 
   it('returns no intake before the customer has shared anything', async () => {
-    const { engine } = createEngine();
+    const { engine } = await createEngine();
     const result = await engine.handleMessage({
       channel: 'web',
       externalUserId: 'intake-user-4',
       text: 'Hello',
     });
-    assert.equal(engine.getIntake(result.sessionId), undefined);
+    assert.equal(await engine.getIntake(result.sessionId), undefined);
   });
 });

@@ -24,7 +24,7 @@ describe('pricing API', () => {
   let serviceId: number;
 
   before(async () => {
-    db = openDatabase(':memory:');
+    db = await openDatabase(':memory:');
     const auth = new AdminAuth(db, { sessionHours: 1 });
     await auth.createAdmin('owner', PASSWORD);
     const engine = new SupportEngine(db, {
@@ -36,13 +36,13 @@ describe('pricing API', () => {
       temperature: 0,
       tenantId: 'test',
     });
-    serviceId = engine.createService({
+    serviceId = (await engine.createService({
       name: 'Company Internal Operations Automation',
       description: '',
       category: 'automation',
       status: 'available',
       availability_note: '',
-    }).id;
+    })).id;
     const app = createApp(engine, { auth, sessionHours: 1, cookieSecure: false, webhookSecret: 'webhook-secret-0123456789' });
     server = app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
@@ -57,10 +57,10 @@ describe('pricing API', () => {
     assert.ok(cookie, 'login should set the session cookie');
   });
 
-  after(() => {
+  after(async () => {
     server.closeAllConnections();
     server.close();
-    db.close();
+    await db.close();
   });
 
   function upload(id: number, body: unknown, withCookie = true): Promise<Response> {
@@ -97,7 +97,7 @@ describe('pricing API', () => {
     assert.equal(res.status, 422);
     const body = await res.json() as { errors: Array<{ row: number }> };
     assert.equal(body.errors[0].row, 2);
-    assert.equal(pricingRepo.listPriceTables(db, serviceId).length, 1);
+    assert.equal((await pricingRepo.listPriceTables(db, serviceId)).length, 1);
   });
 
   it('returns 404 for an unknown service', async () => {

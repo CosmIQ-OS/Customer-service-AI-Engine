@@ -63,6 +63,15 @@ flowchart LR
 * **Issue:** When a customer completed a lead on WhatsApp, the admin dashboard kept displaying `0` until the page was manually refreshed.
 * **Fix:** Added a background 4-second auto-poll to `dashboard/src/App.tsx`. New WhatsApp leads, completed intakes, and pending approval quotes now appear live on the screen without clicking refresh.
 
+### 7. 🐘 PostgreSQL & Neon Cloud Database Migration (Render Free-Tier Ready)
+* **Issue:** Local SQLite (`better-sqlite3`) stored data in an ephemeral container file on Render, risking complete data loss on redeploys or free-tier sleep cycles, and required C++ build tools (`python3`, `make`, `g++`) inside Docker.
+* **Upgrade:**
+  * Migrated the entire database layer (`src/db/database.ts`, `schema.sql`, migrations `001`–`007`, and all 14 repositories) to **PostgreSQL**.
+  * Uses **`pg` (`node-postgres` Pool)** with TLS & advisory-locked migrations when `DATABASE_URL` is set (Neon / Supabase / any Postgres).
+  * Falls back seamlessly to embedded **PostgreSQL (`@electric-sql/pglite`)** locally (`./data/pglite`) and in-memory for tests — zero dialect drift between tests and Neon production.
+  * Added an atomic, idempotent migration script (`npm run db:migrate-sqlite`) using Node 22's built-in `node:sqlite` to safely transfer existing `support.db` records into Neon while preserving IDs and resetting sequences.
+  * Removed `better-sqlite3` and C++ build tools from `Dockerfile` for faster, lighter Render builds.
+
 ---
 
 ## 🔄 3. Complete End-to-End Walkthrough
@@ -75,7 +84,7 @@ flowchart LR
    * `4. Company Internal Operations Automation`
 3. **Number Selection:** Customer sends `1`. Bot immediately identifies the service and begins conversational intake.
 4. **Intake Collection:** Bot asks for company name, team size, and existing tooling stack (e.g. *Sisco*, *20 employees*, *Notion*).
-5. **Database Persistence:** Every answer triggers `save_intake` in SQLite (`service_intakes` table).
+5. **Database Persistence:** Every answer triggers `save_intake` in PostgreSQL (`service_intakes` table).
 6. **Automatic Quote Generation:** Once intake is complete:
    * `PricingAgent` selects matching catalog items (Setup, Custom Agent, Handoff Console, Monthly Maintenance).
    * Calculates itemized pricing + 30% margin.
@@ -88,6 +97,8 @@ flowchart LR
 
 ## 🧪 4. Test & Verification Summary
 
-* **Unit & Integration Tests:** 120 / 120 tests passing (`npm test`).
-* **Frontend Production Build:** Vite bundle builds cleanly in < 750ms (`npm run build`).
-* **Production Deployment:** Deployed via Docker container on Render (`cosmiq-engine`).
+* **Unit & Integration Tests:** 125 / 125 tests passing against real PostgreSQL (`npm test`).
+* **Golden Conversations Eval:** 10 / 10 passing (`npm run eval`).
+* **Frontend Production Build:** Vite bundle builds cleanly in < 750ms (`npm run dashboard:build`).
+* **Security Audit:** 0 vulnerabilities (`npm run audit`).
+* **Production Deployment:** Deployed via Docker container on Render (`cosmiq-engine`) connected to **Neon PostgreSQL** via `DATABASE_URL`.

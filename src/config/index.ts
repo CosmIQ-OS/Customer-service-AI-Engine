@@ -1,13 +1,28 @@
 import { z } from 'zod';
 
+const postgresUrlSchema = z
+  .string()
+  .trim()
+  .refine((value) => /^postgres(?:ql)?:\/\//i.test(value), {
+    message: 'DATABASE_URL must start with postgres:// or postgresql://',
+  });
+
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
-  DB_PATH: z.string().min(1).default('./data/support.db'),
+  DATABASE_URL: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    postgresUrlSchema.optional(),
+  ),
+  DATABASE_URL_UNPOOLED: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    postgresUrlSchema.optional(),
+  ),
+  DB_PATH: z.string().min(1).default('./data/pglite'),
   DASHBOARD_ORIGIN: z.string().optional(),
   SESSION_TTL_MINUTES: z.coerce.number().positive().default(120),
   TENANT_ID: z.string().min(1).default('default'),
   LLM_PROVIDER: z.preprocess(
-    (value) => value === 'openai' ? 'openai-compatible' : value,
+    (value) => (value === 'openai' ? 'openai-compatible' : value),
     z.enum(['mock', 'openai-compatible']).default('mock'),
   ),
   OPENAI_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
@@ -46,4 +61,9 @@ export type AppConfig = z.infer<typeof envSchema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return envSchema.parse(env);
+}
+
+/** Prefers DATABASE_URL (Neon/external Postgres); falls back to local embedded PGlite directory. */
+export function resolveDatabaseTarget(config: Pick<AppConfig, 'DATABASE_URL' | 'DB_PATH'>): string {
+  return config.DATABASE_URL ?? config.DB_PATH;
 }

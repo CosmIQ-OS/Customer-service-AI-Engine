@@ -28,11 +28,11 @@ export class QuoteBuilder {
     const serviceId = input.intake.service_id;
     if (!serviceId) throw new Error('The intake has no catalog service selected.');
 
-    const table = activePriceTable(this.db, serviceId);
+    const table = await activePriceTable(this.db, serviceId);
     if (!table) {
       throw new Error(`No active price table for ${input.intake.service_name || 'this service'}.`);
     }
-    const priceItems = listPriceItems(this.db, table.id);
+    const priceItems = await listPriceItems(this.db, table.id);
     if (priceItems.length === 0) throw new Error('The active price table is empty.');
 
     const selection = await this.agent.select({
@@ -55,7 +55,7 @@ export class QuoteBuilder {
       };
     });
 
-    const quote = createQuote(this.db, {
+    const quote = await createQuote(this.db, {
       sessionId: input.intake.session_id,
       channel: input.intake.channel,
       externalUserId: input.intake.external_user_id,
@@ -67,6 +67,6 @@ export class QuoteBuilder {
       items,
     });
 
-    return { quote, items: listQuoteItems(this.db, quote.id) };
+    return { quote, items: await listQuoteItems(this.db, quote.id) };
   }
 }
