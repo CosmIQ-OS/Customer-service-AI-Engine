@@ -7,6 +7,17 @@ const postgresUrlSchema = z
     message: 'DATABASE_URL must start with postgres:// or postgresql://',
   });
 
+const invoiceNinjaUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => /^https?:\/\//i.test(value), {
+    message: 'INVOICE_NINJA_BASE_URL must use http:// or https://',
+  })
+  .refine((value) => {
+    const parsed = new URL(value);
+    return !parsed.username && !parsed.password;
+  }, { message: 'INVOICE_NINJA_BASE_URL must not embed credentials; use INVOICE_NINJA_API_TOKEN' });
+
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
   DATABASE_URL: z.preprocess(
@@ -55,6 +66,12 @@ const envSchema = z.object({
   WHATSAPP_ACCESS_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+  INVOICE_NINJA_BASE_URL: invoiceNinjaUrlSchema.default('http://invoiceninja'),
+  INVOICE_NINJA_API_TOKEN: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().min(1).optional(),
+  ),
+  INVOICE_NINJA_TIMEOUT_MS: z.coerce.number().int().positive().max(120_000).default(20_000),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

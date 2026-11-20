@@ -14,6 +14,11 @@ export async function getIntake(db: DBExecutor, sessionId: string): Promise<Inta
   return row ? map(row) : undefined;
 }
 
+export async function getIntakeById(db: DBExecutor, id: number): Promise<IntakeRecord | undefined> {
+  const row = await db.queryOne<IntakeRecord>('SELECT * FROM service_intakes WHERE id = $1', [id]);
+  return row ? map(row) : undefined;
+}
+
 export async function listIntakes(db: DBExecutor, limit = 100): Promise<IntakeRecord[]> {
   const { rows } = await db.query<IntakeRecord>(
     'SELECT * FROM service_intakes ORDER BY updated_at DESC, id DESC LIMIT $1',

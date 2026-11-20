@@ -9,7 +9,7 @@
     "start:prod": "node dist/index.js",
     "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs');fs.cpSync('src/db/schema.sql','dist/db/schema.sql');fs.cpSync('src/db/migrations','dist/db/migrations',{recursive:true});\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/adapters/*.test.ts src/approvals/*.test.ts src/auth/*.test.ts src/config/*.test.ts src/db/*.test.ts src/engine/*.test.ts src/intake/*.test.ts src/llm/*.test.ts src/pricing/*.test.ts src/server/*.test.ts",
+    "test": "tsx --test src/adapters/*.test.ts src/approvals/*.test.ts src/auth/*.test.ts src/config/*.test.ts src/db/*.test.ts src/engine/*.test.ts src/intake/*.test.ts src/invoicing/*.test.ts src/llm/*.test.ts src/pricing/*.test.ts src/server/*.test.ts",
     "admin:create": "tsx src/cli/create-admin.ts",
     "admin:passwd": "tsx src/cli/reset-password.ts",
     "db:migrate-sqlite": "tsx src/cli/migrate-sqlite.ts",

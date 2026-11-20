@@ -10,6 +10,8 @@ import { createLLMProvider } from './llm/index.js';
 import { AdminAuth } from './auth/admin-auth.js';
 import { ensureQuoteMarginSetting } from './db/repositories/settings.js';
 import { activePriceTable, publishPriceTable } from './db/repositories/pricing.js';
+import { InvoiceNinjaClient } from './invoicing/ninja-gateway.js';
+import { InvoiceService } from './invoicing/service.js';
 
 export async function bootstrap() {
   const config = loadConfig();
@@ -68,6 +70,13 @@ export async function bootstrap() {
     }
   }
 
+  const ninja = new InvoiceNinjaClient({
+    baseUrl: config.INVOICE_NINJA_BASE_URL,
+    apiToken: config.INVOICE_NINJA_API_TOKEN,
+    timeoutMs: config.INVOICE_NINJA_TIMEOUT_MS,
+  });
+  const invoices = new InvoiceService(db, ninja);
+
   const app = createApp(engine, {
     auth,
     sessionHours: config.ADMIN_SESSION_HOURS,
@@ -75,6 +84,7 @@ export async function bootstrap() {
     dashboardOrigin: config.DASHBOARD_ORIGIN,
     webhookSecret: config.CHANNEL_WEBHOOK_SECRET,
     whatsappVerifyToken: config.WHATSAPP_VERIFY_TOKEN,
+    invoices,
   });
 
   const server = app.listen(config.PORT, () => {
@@ -252,7 +262,7 @@ async function seedCosmiqPriceTables(engine: SupportEngine) {
           console.log(`[pricing] Auto-generated quote ${built.quote.quote_number} for completed intake (${intake.company_name}).`);
         })
         .catch((err) => {
-          console.error(`[pricing] Could not generate quote for intake ${intake.id}:`, err instanceof Error ? err.message : err);
+          console.error('[pricing] Could not generate quote for intake', intake.id, ':', err instanceof Error ? err.message : err);
         });
     }
   }

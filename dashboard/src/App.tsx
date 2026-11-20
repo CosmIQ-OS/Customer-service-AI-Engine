@@ -6,9 +6,11 @@ import { Quotes } from './Quotes';
 import { Approvals } from './Approvals';
 import { LiveConversations } from './LiveConversations';
 import { NotificationBell } from './NotificationBell';
+import { Invoices } from './invoices/Invoices';
+import './invoices/invoices.css';
 
 type AnyRow = Record<string, any>;
-type TabKey = 'overview' | 'inbox' | 'intakes' | 'quotes' | 'services' | 'logs';
+type TabKey = 'overview' | 'inbox' | 'intakes' | 'quotes' | 'invoices' | 'services' | 'logs';
 type ThemeMode = 'light' | 'dark';
 
 function fmtTime(v?: string) {
@@ -269,10 +271,19 @@ export function App() {
 
         <button
           type="button"
+          className={`tab-btn ${activeTab === 'invoices' ? 'active' : ''}`}
+          onClick={() => setActiveTab('invoices')}
+        >
+          <span className="tab-index">05</span>
+          <span>INVOICES</span>
+        </button>
+
+        <button
+          type="button"
           className={`tab-btn ${activeTab === 'services' ? 'active' : ''}`}
           onClick={() => setActiveTab('services')}
         >
-          <span className="tab-index">05</span>
+          <span className="tab-index">06</span>
           <span>CATALOG &amp; PRICING</span>
           <span className="tab-badge">{services.length}</span>
         </button>
@@ -282,7 +293,7 @@ export function App() {
           className={`tab-btn ${activeTab === 'logs' ? 'active' : ''}`}
           onClick={() => setActiveTab('logs')}
         >
-          <span className="tab-index">06</span>
+          <span className="tab-index">07</span>
           <span>TELEMETRY &amp; LOGS</span>
         </button>
       </nav>
@@ -443,7 +454,10 @@ export function App() {
         </div>
       )}
 
-      {/* 05 CATALOG & PRICING */}
+      {/* 05 INVOICES */}
+      {activeTab === 'invoices' && <Invoices />}
+
+      {/* 06 CATALOG & PRICING */}
       {activeTab === 'services' && (
         <div className="split-grid">
           <section className="card">
@@ -473,7 +487,7 @@ export function App() {
         </div>
       )}
 
-      {/* 06 TELEMETRY & LOGS */}
+      {/* 07 TELEMETRY & LOGS */}
       {activeTab === 'logs' && (
         <div className="split-grid-logs">
           <section className="card">

@@ -41,6 +41,13 @@ describe('loadConfig', () => {
     assert.throws(() => loadConfig({ CHANNEL_WEBHOOK_SECRET: 'short' }));
   });
 
+  it('accepts only http(s) Invoice Ninja base URLs without embedded credentials', () => {
+    assert.equal(loadConfig({ INVOICE_NINJA_BASE_URL: 'http://invoiceninja' }).INVOICE_NINJA_BASE_URL, 'http://invoiceninja');
+    assert.equal(loadConfig({ INVOICE_NINJA_BASE_URL: 'https://billing.example.test' }).INVOICE_NINJA_BASE_URL, 'https://billing.example.test');
+    assert.throws(() => loadConfig({ INVOICE_NINJA_BASE_URL: 'ftp://billing.example.test' }));
+    assert.throws(() => loadConfig({ INVOICE_NINJA_BASE_URL: 'https://user:pass@billing.example.test' }));
+  });
+
   it('validates DATABASE_URL and DATABASE_URL_UNPOOLED when provided and ignores blank strings', () => {
     assert.equal(loadConfig({ DATABASE_URL: '', DATABASE_URL_UNPOOLED: '' }).DATABASE_URL, undefined);
     assert.equal(loadConfig({ DATABASE_URL_UNPOOLED: '' }).DATABASE_URL_UNPOOLED, undefined);

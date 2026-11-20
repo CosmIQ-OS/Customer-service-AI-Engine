@@ -83,7 +83,7 @@ Render Free Tier containers have ephemeral disks that reset on restart/sleep. Co
    DATABASE_URL=postgresql://neondb_owner:<password>@<ep-host>-pooler.<region>.aws.neon.tech/neondb?sslmode=require
    COOKIE_SECURE=true
    ```
-3. On first boot, the server automatically acquires a PostgreSQL advisory lock, creates all 17 tables, runs migrations `001`–`007`, and seeds CosmIQ services, FAQs, price tables, and the default admin account.
+3. On first boot, the server automatically acquires a PostgreSQL advisory lock, creates the application tables, runs migrations `001`–`008`, and seeds CosmIQ services, FAQs, price tables, and the default admin account.
 4. *(Optional)* To copy existing local SQLite data (`data/support.db`) into Neon safely:
    ```bash
    DATABASE_URL="postgresql://..." npm run db:migrate-sqlite -- ./data/support.db
@@ -355,3 +355,48 @@ Before declaring a live test successful:
 - Treat `data/*.db` as customer data: back it up encrypted and do not paste its contents into tickets or logs.
 - Rotate the bot token in BotFather and the API key at the provider if either is exposed.
 - `npm audit` currently reports 0 vulnerabilities; re-run it after dependency changes.
+
+---
+
+## 10. Invoice Ninja deployment
+
+The invoice module uses the upstream **Invoice Ninja 5.13.56 Debian image**, not a fork. The Compose `invoicing` profile adds the official application architecture: PHP application, nginx, MySQL 8.4, Redis, and persistent volumes. The existing Node service communicates with nginx at `http://invoiceninja`; browsers only communicate with the Node API.
+
+### 10.1 Configure
+
+1. Copy `.env.example` to `.env` if needed and set a fresh, unique `APP_KEY`, `DB_PASSWORD`, `DB_ROOT_PASSWORD`, `IN_USER_EMAIL`, and `IN_PASSWORD`. Do not reuse dashboard or database credentials and do not commit `.env`. The `invoicing` profile refuses to start while `DB_PASSWORD` or `DB_ROOT_PASSWORD` is blank, and `INVOICE_NINJA_BASE_URL` must be `http(s)` without embedded credentials.
+2. Generate the Laravel key locally as `base64:` followed by 32 random bytes (for example, with `openssl rand -base64 32`). Keep a protected backup: losing `APP_KEY` makes encrypted Invoice Ninja data unrecoverable.
+3. Configure a real SMTP provider and `MAIL_FROM_*` before using **Send Invoice**. `MAIL_MAILER=log` is only for local testing.
+4. Start and inspect the profile:
+
+   ```bash
+   docker compose --profile invoicing up -d --build
+   docker compose --profile invoicing ps
+   docker compose --profile invoicing logs invoice-ninja-app
+   ```
+
+5. Open the Invoice Ninja administration UI at `http://localhost:8080`, complete its initial setup, and create a company API token. Put that token only in `INVOICE_NINJA_API_TOKEN` in `.env`, then restart `engine`.
+6. In COSMIQ **Invoices → settings**, save company and payment details. These are stored in Invoice Ninja and included in newly generated invoice PDFs.
+
+The administration port is bound to `127.0.0.1:8080` by default. Put the UI behind authenticated HTTPS before exposing it publicly. Invoice Ninja's client-facing branding/white-label use is subject to its own license.
+
+### 10.2 Verify the integration
+
+- `GET /api/health` and the dashboard login continue to work.
+- Opening **Invoices** shows the list and settings icon; no browser requests contain the Invoice Ninja token.
+- **New Invoice → Lead / intake** fills customer details and items from the latest approved quote. An existing customer uses the latest approved quote among that customer's linked leads.
+- Saving creates one Invoice Ninja draft and a local customer/lead/quote/invoice relationship. Retrying the same request key returns the existing local invoice.
+- **View** loads the upstream state and PDF preview; **PDF** downloads an authenticated PDF.
+- **Send Invoice** requires a billing email and asks Invoice Ninja to email the invoice. Verify SMTP delivery separately in Invoice Ninja.
+- Cancel/void maps to Invoice Ninja cancellation; archive is a separate operation. Paid invoices cannot be cancelled from this dashboard.
+- Dashboard filters map draft to **Pending**, sent/partial to **Sent**, paid to **Paid**, and cancelled/archived/deleted to **Discarded**.
+
+### 10.3 Storage and recovery
+
+Back up both systems together:
+
+- COSMIQ PostgreSQL/PGlite storage: customer and invoice links, item snapshots, status projections.
+- `invoice-ninja-mysql`: authoritative clients, invoices, numbering, payments and ledger data.
+- `invoice-ninja-storage` and `invoice-ninja-public`: documents and company files.
+
+Do not delete volumes on upgrade. Pin and test upstream Invoice Ninja upgrades before changing `invoiceninja/invoiceninja-debian:5.13.56`. Docker/PHP are not required for Node unit tests: they use an in-memory database and Invoice Ninja test doubles without credentials or network access.

@@ -39,7 +39,9 @@ src/
   cli/
     migrate-sqlite.ts     # Idempotent SQLite -> PostgreSQL/Neon data migration utility
   server/app.ts           # REST API + optional dashboard static hosting
+  invoicing/              # Invoice Ninja v5 gateway and lead/quote invoice orchestration
 dashboard/                # Vite + React dashboard
+dashboard/src/invoices/   # Invoice list, proposal composer, preview, PDF and settings
 data/                     # Local PGlite Postgres data (used only when DATABASE_URL is unset)
 ```
 
@@ -82,6 +84,10 @@ When an intake is complete, a separate pricing agent selects the required line i
 The markup is editable at any time between 30% and 35% in the dashboard or with `PUT /api/settings/quote-margin`. `QUOTE_MARGIN_PERCENT` only seeds the starting value; changing the environment variable later does not overwrite an admin's saved choice. Existing quotes keep the margin they were built with.
 
 `PRICING_LLM_MODEL` optionally points the pricing agent at a stronger model than the front agent; it defaults to `LLM_MODEL`. Quotes are available at `GET /api/quotes` and in the dashboard.
+
+### Invoices
+
+The dashboard's **Invoices** section creates drafts from a lead/customer and its latest approved proposal. Company/payment settings, customer-facing pricing, invoice numbering, email delivery, cancellation/archive operations, and PDF generation use a self-hosted **Invoice Ninja v5.13.56** API. The existing backend stores reusable customers and local lead/quote/invoice links; it never exposes the Invoice Ninja API token to the browser. See [DEPLOYMENT.md](./DEPLOYMENT.md#10-invoice-ninja-deployment) for setup.
 
 ### Approval and delivery
 
@@ -184,6 +190,11 @@ Tests cover tool execution, request creation, transcript continuity, and OpenAI-
 - `PATCH /api/quotes/:id` — edit quantities and margin before approval
 - `POST /api/quotes/:id/approve`, `POST /api/quotes/:id/reject` — decide and deliver
 - `GET /api/notifications`, `POST /api/notifications/:id/read`, `POST /api/notifications/read-all`
+- `GET|POST /api/invoices`, `GET /api/invoices/:id` — list/filter and create/view invoices
+- `GET /api/invoices/options`, `POST /api/invoices/compose` — lead/customer and approved-proposal prefill
+- `POST /api/invoices/:id/send|void|archive` — controlled invoice lifecycle operations
+- `GET /api/invoices/:id/pdf` — authenticated inline PDF or download (`?download=1`)
+- `GET|PUT /api/invoice-settings` — Invoice Ninja company/payment configuration
 - `POST /api/chat/simulate` — simulate a channel message through the agent
 - `POST /api/channels/:channel/inbound` — normalized adapter ingress
 

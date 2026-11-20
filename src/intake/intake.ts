@@ -14,6 +14,7 @@ export interface IntakeRecord {
   language: string;
   status: 'collecting' | 'complete';
   tenant_id: string;
+  customer_id?: number | null;
   created_at: string;
   updated_at: string;
 }

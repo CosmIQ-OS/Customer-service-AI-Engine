@@ -34,7 +34,7 @@ describe('PostgreSQL database layer', () => {
     const first = await openDatabase(dataDir);
     assert.equal(first.driver, 'pglite');
     const migrations = await first.query<{ name: string }>('SELECT name FROM schema_migrations ORDER BY name');
-    assert.equal(migrations.rows.length, 7);
+    assert.equal(migrations.rows.length, 8);
     await first.query("INSERT INTO services (name, status) VALUES ('Persisted Service', 'available')");
     await first.close();
 

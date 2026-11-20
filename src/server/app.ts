@@ -11,6 +11,8 @@ import { asyncHandler } from './async-handler.js';
 import { createPricingRouter } from './pricing-routes.js';
 import { createQuoteRouter } from './quote-routes.js';
 import { createConversationRouter } from './conversation-routes.js';
+import { createInvoiceRouter } from './invoice-routes.js';
+import type { InvoiceService } from '../invoicing/service.js';
 
 export interface AppOptions {
   auth: AdminAuth;
@@ -19,6 +21,7 @@ export interface AppOptions {
   dashboardOrigin?: string;
   webhookSecret?: string;
   whatsappVerifyToken?: string;
+  invoices?: InvoiceService;
 }
 
 const serviceSchema = z.object({
@@ -106,6 +109,7 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
   app.use('/api', createPricingRouter(engine.db));
   app.use('/api', createQuoteRouter(engine));
   app.use('/api', createConversationRouter(engine));
+  if (options.invoices) app.use('/api', createInvoiceRouter(options.invoices));
 
   app.get('/api/dashboard/summary', asyncHandler(async (_req, res) => {
     const [services, requests, logs, faqs, intakes] = await Promise.all([

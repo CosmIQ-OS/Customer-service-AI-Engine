@@ -192,6 +192,25 @@ export async function createQuote(
   });
 }
 
+export async function latestApprovedQuoteForIntake(db: DBExecutor, intakeId: number): Promise<QuoteRecord | undefined> {
+  const row = await db.queryOne<QuoteRecord>(
+    `SELECT * FROM quotes WHERE intake_id = $1 AND status = 'approved'
+     ORDER BY approved_at DESC NULLS LAST, id DESC LIMIT 1`,
+    [intakeId],
+  );
+  return row ? mapQuote(row) : undefined;
+}
+
+export async function latestApprovedQuoteForCustomer(db: DBExecutor, customerId: number): Promise<QuoteRecord | undefined> {
+  const row = await db.queryOne<QuoteRecord>(
+    `SELECT q.* FROM quotes q JOIN service_intakes si ON si.id = q.intake_id
+     WHERE si.customer_id = $1 AND q.status = 'approved'
+     ORDER BY q.approved_at DESC NULLS LAST, q.id DESC LIMIT 1`,
+    [customerId],
+  );
+  return row ? mapQuote(row) : undefined;
+}
+
 export async function listPendingApprovals(db: DBExecutor, limit = 50): Promise<QuoteRecord[]> {
   const { rows } = await db.query<QuoteRecord>(
     `SELECT * FROM quotes WHERE status = 'pending_approval'
