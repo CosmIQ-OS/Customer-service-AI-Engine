@@ -94,7 +94,7 @@ export function ServiceSettingsModal({ onClose, onSaved }: ServiceSettingsModalP
         maxHeight: '90vh', overflowY: 'auto'
       }}>
         <div className="panel-title" style={{ marginBottom: 14 }}>
-          <strong>PRICING RULES &amp; PROPOSAL SETTINGS</strong>
+          <strong>PRICING RULES &amp; INVOICE SETTINGS</strong>
           <button type="button" className="banner-close" onClick={onClose}>✕</button>
         </div>
 
@@ -106,7 +106,7 @@ export function ServiceSettingsModal({ onClose, onSaved }: ServiceSettingsModalP
             <div>
               <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>Company Size Multipliers</strong>
               <p className="small muted" style={{ margin: '4px 0 10px' }}>
-                Applied to service base prices automatically when creating proposals.
+                Applied to service base prices automatically when creating invoices.
               </p>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
@@ -169,9 +169,9 @@ export function ServiceSettingsModal({ onClose, onSaved }: ServiceSettingsModalP
             </div>
 
             <div style={{ borderTop: '1px solid var(--border-default)', paddingTop: 14 }}>
-              <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>Default Proposal Terms &amp; Conditions Template</strong>
+              <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>Default Invoice Terms &amp; Conditions Template</strong>
               <p className="small muted" style={{ margin: '4px 0 8px' }}>
-                Pre-filled automatically into new proposals. You can edit it here or override it per proposal.
+                Pre-filled automatically into new invoices. You can edit it here or override it per invoice.
               </p>
 
               <textarea

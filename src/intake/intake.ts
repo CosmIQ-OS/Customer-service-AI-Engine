@@ -14,11 +14,19 @@ export interface IntakeRecord {
   current_tools: string;
   service_id: number | null;
   service_name: string;
+  email?: string;
+  contact_person?: string;
   language: string;
   status: IntakeStatus;
   tenant_id: string;
   created_at: string;
   updated_at: string;
+}
+
+export function extractEmailFromText(text?: string | null): string {
+  if (!text) return '';
+  const match = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.exec(text);
+  return match ? match[0].trim() : '';
 }
 
 export function isIntakeReady(status: string): boolean {
@@ -27,6 +35,8 @@ export function isIntakeReady(status: string): boolean {
 
 export type IntakeInput = Partial<Record<IntakeField, string>> & {
   service_id?: number | null;
+  email?: string;
+  contact_person?: string;
   language?: string;
 };
 

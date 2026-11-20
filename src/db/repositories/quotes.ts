@@ -1,7 +1,15 @@
 import { UTC_NOW_SQL, type DB, type DBExecutor } from '../database.js';
 import { applyMargin, normalizeMarginPercent } from '../../pricing/margin.js';
 
-export type QuoteStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'expired' | 'superseded';
+export type QuoteStatus =
+  | 'draft'
+  | 'pending_approval'
+  | 'approved'
+  | 'rejected'
+  | 'expired'
+  | 'superseded'
+  | 'pending'
+  | 'paid';
 
 export interface QuoteRecord {
   id: number;
@@ -222,6 +230,7 @@ export interface ProposalInput {
   serviceId?: number | null;
   serviceName?: string;
   marginPercent?: number;
+  status?: 'pending' | 'paid' | 'draft';
   termsAndConditions?: string;
   notes?: string;
   createdBy?: string;
@@ -229,21 +238,22 @@ export interface ProposalInput {
 }
 
 export async function createProposal(db: DB, input: ProposalInput): Promise<QuoteRecord> {
-  if (input.items.length === 0) throw new Error('A proposal needs at least one line item.');
+  if (input.items.length === 0) throw new Error('An invoice needs at least one line item.');
   return db.transaction(async (tx) => {
     const nextRow = await tx.queryOne<{ next: number }>('SELECT (COALESCE(MAX(id), 0) + 1)::int AS next FROM quotes');
     const next = Number(nextRow?.next ?? 1);
-    const quoteNumber = `P-${new Date().getUTCFullYear()}-${String(next).padStart(4, '0')}`;
+    const quoteNumber = `INV-${new Date().getUTCFullYear()}-${String(next).padStart(4, '0')}`;
 
     const subtotalPaise = input.items.reduce(
       (total, item) => total + Math.round(item.unitPricePaise * item.quantity),
       0,
     );
-    const marginPercent = input.marginPercent ?? 0;
+    const marginPercent = 0;
     const totalPaise = input.items.reduce(
       (total, item) => total + (item.lineTotalPaise ?? Math.round(item.unitPricePaise * item.quantity)),
       0,
     );
+    const invoiceStatus: QuoteStatus = input.status ?? 'pending';
 
     const quote = await tx.queryOne<QuoteRecord>(
       `INSERT INTO quotes
@@ -253,7 +263,7 @@ export async function createProposal(db: DB, input: ProposalInput): Promise<Quot
        VALUES
         ($1, $2, $3, $4, $5, $6, $7,
          $8, $9, $10, $11,
-         'draft', $12, $13, $14, $15, $16, $17)
+         $12, $13, $14, $15, $16, $17, $18)
        RETURNING *`,
       [
         quoteNumber,
@@ -262,15 +272,16 @@ export async function createProposal(db: DB, input: ProposalInput): Promise<Quot
         input.externalUserId ?? input.clientEmail ?? input.clientName,
         input.intakeId ?? null,
         input.serviceId ?? null,
-        input.serviceName ?? (input.items[0]?.description || 'Custom Proposal'),
+        input.serviceName ?? (input.items[0]?.description || 'Custom Invoice'),
         input.clientName,
         input.clientEmail ?? '',
         input.companySize ?? '',
         input.termsAndConditions ?? '',
+        invoiceStatus,
         marginPercent,
         subtotalPaise,
         totalPaise,
-        totalPaise - subtotalPaise,
+        0,
         input.notes ?? '',
         input.createdBy ?? 'admin',
       ],
@@ -466,4 +477,16 @@ export async function decideQuote(
 
 export async function markQuoteDelivered(db: DBExecutor, id: number, deliveredAt: string): Promise<void> {
   await db.query(`UPDATE quotes SET delivered_at = $1, updated_at = ${UTC_NOW_SQL} WHERE id = $2`, [deliveredAt, id]);
+}
+
+export async function updateQuoteStatus(
+  db: DBExecutor,
+  id: number,
+  status: QuoteStatus,
+): Promise<QuoteRecord | undefined> {
+  const row = await db.queryOne<QuoteRecord>(
+    `UPDATE quotes SET status = $1, updated_at = ${UTC_NOW_SQL} WHERE id = $2 RETURNING *`,
+    [status, id],
+  );
+  return row ? mapQuote(row) : undefined;
 }

@@ -2,12 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 import { NewProposalModal } from './NewProposalModal';
 
-interface QuoteSettings {
-  quoteMarginPercent: number;
-  minMarginPercent: number;
-  maxMarginPercent: number;
-}
-
 interface Quote {
   id: number;
   quote_number: string;
@@ -39,6 +33,11 @@ interface QuoteDetail {
   items: QuoteItem[];
 }
 
+const INVOICE_STATUS_OPTIONS = [
+  { value: 'pending', label: 'PENDING' },
+  { value: 'paid', label: 'PAID INVOICE' },
+] as const;
+
 function formatInr(paise: number): string {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(paise / 100);
 }
@@ -54,69 +53,40 @@ function fmtQuantity(value: number): string {
 }
 
 export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
-  const [settings, setSettings] = useState<QuoteSettings | null>(null);
-  const [margin, setMargin] = useState('');
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [detail, setDetail] = useState<QuoteDetail | null>(null);
-  const [showNewProposal, setShowNewProposal] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [showNewInvoice, setShowNewInvoice] = useState(false);
+  const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [marginError, setMarginError] = useState('');
 
   const load = useCallback(async () => {
-    const [nextSettings, list] = await Promise.all([
-      api<QuoteSettings>('/api/settings'),
-      api<{ quotes: Quote[] }>('/api/quotes?limit=50'),
-    ]);
-    setSettings(nextSettings);
-    setMargin(String(nextSettings.quoteMarginPercent));
-    setMarginError('');
+    const list = await api<{ quotes: Quote[] }>('/api/quotes?limit=50');
     setQuotes(list.quotes);
   }, []);
 
   useEffect(() => {
-    load().catch((err) => setError(err instanceof Error ? err.message : 'Could not load quotes'));
+    load().catch((err) => setError(err instanceof Error ? err.message : 'Could not load invoices'));
   }, [load, refreshKey]);
 
-  function rejectMargin(text: string) {
-    setMarginError(text);
-    setMessage('');
-    if (settings) setMargin(String(settings.quoteMarginPercent));
-  }
-
-  function onMarginChange(value: string) {
-    setMargin(value);
-    setMarginError('');
-    setMessage('');
-  }
-
-  async function saveMargin(e: React.FormEvent) {
-    e.preventDefault();
-    if (!settings) return;
-    const value = Number(margin);
-    if (!Number.isFinite(value) || value < settings.minMarginPercent || value > settings.maxMarginPercent) {
-      rejectMargin(
-        `Margin must be between ${settings.minMarginPercent} and ${settings.maxMarginPercent} percent. The saved value is still ${settings.quoteMarginPercent}%.`,
-      );
-      return;
-    }
-    setBusy(true);
+  async function updateInvoiceStatus(id: number, status: string) {
+    setUpdatingId(id);
     setError('');
     setMessage('');
-    setMarginError('');
     try {
-      const updated = await api<QuoteSettings>('/api/settings/quote-margin', {
-        method: 'PUT',
-        body: JSON.stringify({ marginPercent: value }),
+      const updated = await api<Quote>(`/api/quotes/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
       });
-      setSettings(updated);
-      setMargin(String(updated.quoteMarginPercent));
-      setMessage(`Markup updated to ${updated.quoteMarginPercent}%. New quotes will use it.`);
+      setQuotes((prev) => prev.map((q) => (q.id === id ? { ...q, ...updated } : q)));
+      if (detail?.quote.id === id) {
+        setDetail({ ...detail, quote: { ...detail.quote, ...updated } });
+      }
+      setMessage(`Invoice ${updated.quote_number} updated to ${status === 'paid' ? 'Paid Invoice' : status.toUpperCase()}.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save the margin');
+      setError(err instanceof Error ? err.message : 'Could not update invoice status');
     } finally {
-      setBusy(false);
+      setUpdatingId(null);
     }
   }
 
@@ -125,66 +95,32 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
     try {
       setDetail(await api<QuoteDetail>(`/api/quotes/${id}`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load the quote');
+      setError(err instanceof Error ? err.message : 'Could not load the invoice');
     }
   }
 
   return (
     <section className="card">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <h2 className="panel-title" style={{ margin: 0 }}>
-          <strong>PROPOSALS &amp; QUOTES</strong>
-          <span>Commercial drafts &amp; client proposals</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+        <h2 className="panel-title" style={{ margin: 0, borderBottom: 0, paddingBottom: 0 }}>
+          <strong>INVOICE</strong>
+          <span>Commercial billing &amp; client invoices</span>
         </h2>
-        <button
-          type="button"
-          className="btn primary"
-          onClick={() => setShowNewProposal(true)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-        >
-          <span>+</span>
-          <span>NEW PROPOSAL</span>
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="btn secondary" type="button" onClick={() => load().catch(() => undefined)}>
+            Refresh
+          </button>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => setShowNewInvoice(true)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <span>+</span>
+            <span>NEW INVOICE</span>
+          </button>
+        </div>
       </div>
-
-      {settings ? (
-        <form className="form" onSubmit={saveMargin} noValidate>
-          <div className="inline-form-row">
-            <label style={{ width: 200 }}>
-              Markup on admin prices (%)
-              <input
-                type="number"
-                min={settings.minMarginPercent}
-                max={settings.maxMarginPercent}
-                step="0.25"
-                style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}
-                value={margin}
-                aria-invalid={marginError ? true : undefined}
-                aria-describedby={marginError ? 'quote-margin-error' : undefined}
-                onChange={(e) => onMarginChange(e.target.value)}
-              />
-            </label>
-            <div className="toolbar">
-              <button className="btn primary" type="submit" disabled={busy}>
-                {busy ? 'Saving…' : 'Save markup'}
-              </button>
-              <button className="btn secondary" type="button" onClick={() => load().catch(() => undefined)}>
-                Refresh quotes
-              </button>
-            </div>
-          </div>
-          {marginError && (
-            <span id="quote-margin-error" className="banner error" style={{ marginBottom: 0 }} role="alert">
-              {marginError}
-            </span>
-          )}
-          <span className="muted small">
-            Allowed range {settings.minMarginPercent}–{settings.maxMarginPercent}%. Applies to new quotes; existing quotes keep the margin they were built with.
-          </span>
-        </form>
-      ) : (
-        <div className="muted small">Loading pricing settings…</div>
-      )}
 
       {message && <div className="banner success" style={{ marginTop: 14 }}>{message}</div>}
       {error && <div className="banner error" style={{ marginTop: 14 }}>{error}</div>}
@@ -200,14 +136,14 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
               border: '1px solid var(--border-default)',
             }}
           >
-            No quotes yet. A draft is created when an intake is complete and the service has an active price table.
+            No invoices yet. Click + NEW INVOICE to create a client invoice.
           </div>
         ) : (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Quote</th>
+                  <th>Invoice</th>
                   <th>Customer</th>
                   <th>Service</th>
                   <th className="num">Total</th>
@@ -216,37 +152,57 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
                 </tr>
               </thead>
               <tbody>
-                {quotes.map((quote) => (
-                  <tr key={quote.id}>
-                    <td className="mono">{quote.quote_number}</td>
-                    <td>
-                      <span className="mono small">{quote.external_user_id}</span>
-                      <div className="muted small">{quote.channel}</div>
-                    </td>
-                    <td className="small">{quote.service_name}</td>
-                    <td className="num">{formatInr(quote.total_paise)}</td>
-                    <td><span className="pill">{quote.status}</span></td>
-                    <td className="act" style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                      <a
-                        className="btn secondary"
-                        style={{ minHeight: 30, padding: '4px 8px', fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
-                        href={`/api/quotes/${quote.id}/pdf`}
-                        download={`${quote.quote_number}.pdf`}
-                        title="Download Branded Vector PDF"
-                      >
-                        PDF ↓
-                      </a>
-                      <button
-                        className="btn secondary"
-                        style={{ minHeight: 30, padding: '4px 10px', fontSize: '11px' }}
-                        type="button"
-                        onClick={() => view(quote.id)}
-                      >
-                        View
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {quotes.map((quote) => {
+                  const hasKnownInvoiceStatus = INVOICE_STATUS_OPTIONS.some((o) => o.value === quote.status);
+                  return (
+                    <tr key={quote.id}>
+                      <td className="mono">{quote.quote_number}</td>
+                      <td>
+                        <span className="mono small">{quote.external_user_id}</span>
+                        <div className="muted small">{quote.channel}</div>
+                      </td>
+                      <td className="small">{quote.service_name}</td>
+                      <td className="num">{formatInr(quote.total_paise)}</td>
+                      <td>
+                        <select
+                          aria-label={`Invoice status for ${quote.quote_number}`}
+                          className={`lead-status-select status-${quote.status}`}
+                          value={quote.status}
+                          disabled={updatingId === quote.id}
+                          onChange={(e) => updateInvoiceStatus(quote.id, e.target.value)}
+                        >
+                          {!hasKnownInvoiceStatus && (
+                            <option value={quote.status}>{quote.status.toUpperCase()}</option>
+                          )}
+                          {INVOICE_STATUS_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="act" style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        <a
+                          className="btn secondary"
+                          style={{ minHeight: 30, padding: '4px 8px', fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                          href={`/api/quotes/${quote.id}/pdf`}
+                          download={`${quote.quote_number}.pdf`}
+                          title="Download Invoice PDF"
+                        >
+                          PDF ↓
+                        </a>
+                        <button
+                          className="btn secondary"
+                          style={{ minHeight: 30, padding: '4px 10px', fontSize: '11px' }}
+                          type="button"
+                          onClick={() => view(quote.id)}
+                        >
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -264,7 +220,7 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
         >
           <div className="panel-title">
             <strong className="mono" style={{ fontSize: '0.92rem' }}>
-              {detail.quote.quote_number} · {detail.quote.margin_percent}% markup
+              {detail.quote.quote_number}
             </strong>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <a
@@ -276,7 +232,7 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
                 <span>DOWNLOAD PDF</span>
                 <span>↓</span>
               </a>
-              <span className="pill">{detail.quote.status}</span>
+              <span className="pill">{detail.quote.status === 'paid' ? 'PAID INVOICE' : detail.quote.status.toUpperCase()}</span>
             </div>
           </div>
 
@@ -288,8 +244,7 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
                   <th>Description</th>
                   <th>Unit</th>
                   <th className="num">Qty</th>
-                  <th className="num">Admin unit</th>
-                  <th className="num">Quoted unit</th>
+                  <th className="num">Unit Price</th>
                   <th className="num">Line total</th>
                 </tr>
               </thead>
@@ -300,7 +255,6 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
                     <td>{item.description}</td>
                     <td>{item.unit}</td>
                     <td className="num">{fmtQuantity(item.quantity)}</td>
-                    <td className="num muted">{formatInr(item.admin_unit_price_paise)}</td>
                     <td className="num">{formatInr(item.quoted_unit_price_paise)}</td>
                     <td className="num">{formatInr(item.line_total_paise)}</td>
                   </tr>
@@ -310,9 +264,8 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
           </div>
 
           <div className="quote-total-band">
-            <span>ADMIN SUBTOTAL: {formatInr(detail.quote.subtotal_paise)}</span>
-            <span>MARGIN: {formatInr(detail.quote.margin_paise)}</span>
-            <span>CUSTOMER TOTAL: {formatInr(detail.quote.total_paise)}</span>
+            <span>SUBTOTAL: {formatInr(detail.quote.subtotal_paise)}</span>
+            <span>INVOICE TOTAL: {formatInr(detail.quote.total_paise)}</span>
           </div>
 
           <p className="mono muted" style={{ fontSize: '11px', margin: '10px 0 0' }}>
@@ -326,9 +279,9 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
         </div>
       )}
 
-      {showNewProposal && (
+      {showNewInvoice && (
         <NewProposalModal
-          onClose={() => setShowNewProposal(false)}
+          onClose={() => setShowNewInvoice(false)}
           onSaved={() => {
             load().catch(() => undefined);
           }}

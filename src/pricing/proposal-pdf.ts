@@ -4,6 +4,7 @@ export interface ProposalPdfData {
   quoteNumber: string;
   date: string;
   validUntil?: string;
+  status?: string;
   clientName: string;
   clientCompany?: string;
   clientEmail?: string;
@@ -33,6 +34,12 @@ function formatInr(paise: number): string {
   }).format(inr);
 }
 
+function formatInvoiceStatusLabel(status?: string): string {
+  if (status === 'paid') return 'PAID INVOICE';
+  if (status === 'pending') return 'PENDING';
+  return (status || 'PENDING').toUpperCase();
+}
+
 export function generateProposalPdf(data: ProposalPdfData): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
@@ -40,9 +47,9 @@ export function generateProposalPdf(data: ProposalPdfData): Promise<Buffer> {
         margin: 50,
         size: 'A4',
         info: {
-          Title: `CosmIQ OS Proposal - ${data.quoteNumber}`,
+          Title: `CosmIQ OS Invoice - ${data.quoteNumber}`,
           Author: 'CosmIQ OS Customer Service AI Engine',
-          Subject: `Proposal for ${data.clientCompany || data.clientName}`,
+          Subject: `Invoice for ${data.clientCompany || data.clientName}`,
         },
       });
 
@@ -60,20 +67,21 @@ export function generateProposalPdf(data: ProposalPdfData): Promise<Buffer> {
       doc.fillColor('#8f8a80').fontSize(8).text('Website: cosmiqos.com  |  Support: ops@cosmiqos.com', 50, 78);
 
       // Document Badge & Info on Right
-      doc.fillColor('#ff5a1f').fontSize(16).font('Helvetica-Bold').text('FORMAL PROPOSAL', 360, 40, { align: 'right', width: 185 });
+      doc.fillColor('#ff5a1f').fontSize(16).font('Helvetica-Bold').text('INVOICE', 360, 40, { align: 'right', width: 185 });
       doc.fillColor('#181715').fontSize(10).font('Helvetica-Bold').text(`REF: ${data.quoteNumber}`, 360, 62, { align: 'right', width: 185 });
       doc.fillColor('#57524a').fontSize(8).font('Helvetica').text(`Date: ${data.date}`, 360, 76, { align: 'right', width: 185 });
+      doc.text(`Status: ${formatInvoiceStatusLabel(data.status)}`, 360, 88, { align: 'right', width: 185 });
       if (data.validUntil) {
-        doc.text(`Valid Until: ${data.validUntil}`, 360, 88, { align: 'right', width: 185 });
+        doc.text(`Valid Until: ${data.validUntil}`, 360, 100, { align: 'right', width: 185 });
       }
 
       // Divider line
-      doc.strokeColor('#d8d2c4').lineWidth(1).moveTo(50, 105).lineTo(545.28, 105).stroke();
+      doc.strokeColor('#d8d2c4').lineWidth(1).moveTo(50, 114).lineTo(545.28, 114).stroke();
 
       // Client Information Section
-      let curY = 120;
-      doc.fillColor('#ff5a1f').fontSize(8).font('Helvetica-Bold').text('PROPOSAL PREPARED FOR:', 50, curY);
-      doc.text('ENGAGEMENT CONTEXT:', 320, curY);
+      let curY = 128;
+      doc.fillColor('#ff5a1f').fontSize(8).font('Helvetica-Bold').text('INVOICE PREPARED FOR:', 50, curY);
+      doc.text('BILLING CONTEXT:', 320, curY);
 
       curY += 14;
       doc.fillColor('#181715').fontSize(13).font('Helvetica-Bold').text(data.clientCompany || data.clientName || 'Valued Client', 50, curY);
@@ -95,13 +103,13 @@ export function generateProposalPdf(data: ProposalPdfData): Promise<Buffer> {
       }
 
       if (data.companySize) {
-        doc.text(`Company Size Tier: ${data.companySize} employees`, 320, 150);
+        doc.text(`Company Size Tier: ${data.companySize} employees`, 320, 158);
       }
 
-      curY = Math.max(curY + 15, 195);
+      curY = Math.max(curY + 15, 202);
 
-      // Section Title: Scope & Services
-      doc.fillColor('#181715').fontSize(11).font('Helvetica-Bold').text('PROPOSED SERVICES & INVESTMENT SUMMARY', 50, curY);
+      // Section Title: Services & Invoice Summary
+      doc.fillColor('#181715').fontSize(11).font('Helvetica-Bold').text('INVOICED SERVICES & INVESTMENT SUMMARY', 50, curY);
       curY += 18;
 
       // Table Header
@@ -142,22 +150,15 @@ export function generateProposalPdf(data: ProposalPdfData): Promise<Buffer> {
       doc.fillColor('#181715').font('Helvetica-Bold').text(formatInr(data.subtotalPaise), totalBoxX, curY, { width: totalBoxW, align: 'right' });
       curY += 16;
 
-      if (data.marginPercent !== undefined && data.marginPercent !== 0) {
-        doc.fillColor('#57524a').fontSize(8.5).font('Helvetica').text(`Platform Margin / Adj (${data.marginPercent > 0 ? '+' : ''}${data.marginPercent}%):`, totalBoxX, curY);
-        const marginPaise = Math.round((data.subtotalPaise * data.marginPercent) / 100);
-        doc.fillColor('#57524a').text(formatInr(marginPaise), totalBoxX, curY, { width: totalBoxW, align: 'right' });
-        curY += 16;
-      }
-
       // Grand Total Highlight
       doc.rect(totalBoxX - 10, curY - 4, totalBoxW + 10, 26).fill('#181715');
-      doc.fillColor('#ffffff').fontSize(10).font('Helvetica-Bold').text('TOTAL INVESTMENT:', totalBoxX, curY + 3);
+      doc.fillColor('#ffffff').fontSize(10).font('Helvetica-Bold').text('INVOICE TOTAL:', totalBoxX, curY + 3);
       doc.fillColor('#ff5a1f').fontSize(11).font('Helvetica-Bold').text(formatInr(data.totalPaise), totalBoxX, curY + 3, { width: totalBoxW - 5, align: 'right' });
       curY += 36;
 
       // Notes
       if (data.notes) {
-        doc.fillColor('#181715').fontSize(9).font('Helvetica-Bold').text('PROPOSAL NOTES:', 50, curY);
+        doc.fillColor('#181715').fontSize(9).font('Helvetica-Bold').text('INVOICE NOTES:', 50, curY);
         curY += 12;
         doc.fillColor('#57524a').fontSize(8).font('Helvetica').text(data.notes, 50, curY, { width: 495.28 });
         curY += 24;
@@ -191,7 +192,7 @@ export function generateProposalPdf(data: ProposalPdfData): Promise<Buffer> {
       curY += 16;
 
       // Left: CosmIQ OS Sign-off
-      doc.fillColor('#181715').fontSize(8.5).font('Helvetica-Bold').text('PREPARED & AUTHORIZED BY:', 50, curY);
+      doc.fillColor('#181715').fontSize(8.5).font('Helvetica-Bold').text('ISSUED & AUTHORIZED BY:', 50, curY);
       doc.fillColor('#57524a').fontSize(8).font('Helvetica').text('CosmIQ OS Solutions Delivery', 50, curY + 14);
       doc.text('Date: ' + data.date, 50, curY + 26);
 
@@ -201,7 +202,7 @@ export function generateProposalPdf(data: ProposalPdfData): Promise<Buffer> {
       doc.fillColor('#8f8a80').fontSize(7.5).font('Helvetica').text('Authorized Client Signature & Date', 320, curY + 40);
 
       // Footer
-      doc.fillColor('#b8b3a8').fontSize(7).text('CosmIQ OS Customer Service AI Engine — Confidential Commercial Proposal', 50, 790, { align: 'center', width: 495.28 });
+      doc.fillColor('#b8b3a8').fontSize(7).text('CosmIQ OS Customer Service AI Engine — Confidential Commercial Invoice', 50, 790, { align: 'center', width: 495.28 });
 
       doc.end();
     } catch (err) {

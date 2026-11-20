@@ -1,29 +1,76 @@
 import { UTC_NOW_SQL, type DB, type DBExecutor } from '../database.js';
-import { isIntakeComplete, type IntakeInput, type IntakeRecord, type IntakeStatus } from '../../intake/intake.js';
+import {
+  extractEmailFromText,
+  isIntakeComplete,
+  type IntakeInput,
+  type IntakeRecord,
+  type IntakeStatus,
+} from '../../intake/intake.js';
+import { parseJson } from './common.js';
 
-function map(row: IntakeRecord): IntakeRecord {
-  const rawStatus = row.status as string;
+type IntakeQueryRow = IntakeRecord & {
+  session_context?: string | null;
+  email_hint?: string | null;
+};
+
+const INTAKE_SELECT_SQL = `
+  SELECT i.*,
+         s.context AS session_context,
+         (
+           SELECT m.content
+           FROM messages m
+           WHERE m.session_id = i.session_id
+             AND m.role = 'user'
+             AND m.content LIKE '%@%'
+           ORDER BY m.id DESC
+           LIMIT 1
+         ) AS email_hint
+  FROM service_intakes i
+  LEFT JOIN sessions s ON s.id = i.session_id
+`;
+
+function map(row: IntakeQueryRow): IntakeRecord {
+  const { session_context, email_hint, ...baseRow } = row;
+  const rawStatus = baseRow.status as string;
+  const ctx = session_context ? parseJson<Record<string, unknown>>(session_context, {}) : {};
+  const ctxEmail = typeof ctx.email === 'string' ? ctx.email.trim() : '';
+  const ctxContact =
+    typeof ctx.contact_person === 'string' && ctx.contact_person.trim()
+      ? ctx.contact_person.trim()
+      : typeof ctx.name === 'string'
+        ? ctx.name.trim()
+        : '';
+
+  const resolvedEmail =
+    (baseRow.email ?? '').trim() ||
+    ctxEmail ||
+    extractEmailFromText(baseRow.external_user_id) ||
+    extractEmailFromText(email_hint);
+  const resolvedContact = (baseRow.contact_person ?? '').trim() || ctxContact;
+
   return {
-    ...row,
-    id: Number(row.id),
-    service_id: row.service_id === null ? null : Number(row.service_id),
-    status: rawStatus === 'complete' ? 'collected' : row.status,
+    ...baseRow,
+    id: Number(baseRow.id),
+    service_id: baseRow.service_id === null ? null : Number(baseRow.service_id),
+    email: resolvedEmail,
+    contact_person: resolvedContact,
+    status: rawStatus === 'complete' ? 'collected' : baseRow.status,
   };
 }
 
 export async function getIntake(db: DBExecutor, sessionId: string): Promise<IntakeRecord | undefined> {
-  const row = await db.queryOne<IntakeRecord>('SELECT * FROM service_intakes WHERE session_id = $1', [sessionId]);
+  const row = await db.queryOne<IntakeQueryRow>(`${INTAKE_SELECT_SQL} WHERE i.session_id = $1`, [sessionId]);
   return row ? map(row) : undefined;
 }
 
 export async function getIntakeById(db: DBExecutor, id: number): Promise<IntakeRecord | undefined> {
-  const row = await db.queryOne<IntakeRecord>('SELECT * FROM service_intakes WHERE id = $1', [id]);
+  const row = await db.queryOne<IntakeQueryRow>(`${INTAKE_SELECT_SQL} WHERE i.id = $1`, [id]);
   return row ? map(row) : undefined;
 }
 
 export async function listIntakes(db: DBExecutor, limit = 100): Promise<IntakeRecord[]> {
-  const { rows } = await db.query<IntakeRecord>(
-    'SELECT * FROM service_intakes ORDER BY updated_at DESC, id DESC LIMIT $1',
+  const { rows } = await db.query<IntakeQueryRow>(
+    `${INTAKE_SELECT_SQL} ORDER BY i.updated_at DESC, i.id DESC LIMIT $1`,
     [limit],
   );
   return rows.map(map);
@@ -52,6 +99,8 @@ export async function upsertIntake(
     current_tools: pick('current_tools') ?? existing?.current_tools ?? '',
     service_name: pick('service_name') ?? existing?.service_name ?? '',
     service_id: input.patch.service_id !== undefined ? input.patch.service_id : existing?.service_id ?? null,
+    email: pick('email') ?? existing?.email ?? '',
+    contact_person: pick('contact_person') ?? existing?.contact_person ?? '',
     language: pick('language') ?? existing?.language ?? '',
   };
   const complete = isIntakeComplete(merged);
@@ -66,9 +115,9 @@ export async function upsertIntake(
     const row = await db.queryOne<IntakeRecord>(
       `UPDATE service_intakes SET
          company_name = $1, company_size = $2, current_tools = $3,
-         service_id = $4, service_name = $5, language = $6,
-         status = $7, updated_at = ${UTC_NOW_SQL}
-       WHERE session_id = $8
+         service_id = $4, service_name = $5, email = $6, contact_person = $7,
+         language = $8, status = $9, updated_at = ${UTC_NOW_SQL}
+       WHERE session_id = $10
        RETURNING *`,
       [
         merged.company_name,
@@ -76,6 +125,8 @@ export async function upsertIntake(
         merged.current_tools,
         merged.service_id,
         merged.service_name,
+        merged.email,
+        merged.contact_person,
         merged.language,
         status,
         input.sessionId,
@@ -87,8 +138,8 @@ export async function upsertIntake(
   const row = await db.queryOne<IntakeRecord>(
     `INSERT INTO service_intakes
        (session_id, channel, external_user_id, company_name, company_size, current_tools,
-        service_id, service_name, language, status, tenant_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        service_id, service_name, email, contact_person, language, status, tenant_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING *`,
     [
       input.sessionId,
@@ -99,6 +150,8 @@ export async function upsertIntake(
       merged.current_tools,
       merged.service_id,
       merged.service_name,
+      merged.email,
+      merged.contact_person,
       merged.language,
       status,
       input.tenantId,

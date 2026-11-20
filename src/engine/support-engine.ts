@@ -11,9 +11,10 @@ import * as sessionsRepo from '../db/repositories/sessions.js';
 import * as intakeRepo from '../db/repositories/intake.js';
 import * as quotesRepo from '../db/repositories/quotes.js';
 import type { QuoteRecord } from '../db/repositories/quotes.js';
+import * as contractProposalsRepo from '../db/repositories/contract-proposals.js';
 import * as settingsRepo from '../db/repositories/settings.js';
 import * as notificationsRepo from '../db/repositories/notifications.js';
-import { isIntakeReady, type IntakeStatus } from '../intake/intake.js';
+import { extractEmailFromText, isIntakeReady, type IntakeStatus } from '../intake/intake.js';
 import { detectLanguage } from '../intake/language.js';
 import { PricingAgent } from '../pricing/pricing-agent.js';
 import { QuoteBuilder, type BuiltQuote } from '../pricing/quote-builder.js';
@@ -140,6 +141,49 @@ export class SupportEngine {
     });
     return created;
   }
+  async updateQuoteStatus(id: number, status: quotesRepo.QuoteStatus, adminId: number | null = null) {
+    const updated = await quotesRepo.updateQuoteStatus(this.db, id, status);
+    if (updated) {
+      await logsRepo.createLog(this.db, {
+        channel: updated.channel,
+        external_user_id: updated.external_user_id,
+        session_id: updated.session_id,
+        direction: 'system',
+        event: 'quote.status_updated',
+        message: `Invoice ${updated.quote_number} status updated to ${status}.`,
+        payload: { quoteId: updated.id, status, adminId },
+      });
+    }
+    return updated;
+  }
+  getProposalTemplateSettings() {
+    return settingsRepo.getProposalTemplateSettings(this.db);
+  }
+  setProposalTemplateSettings(
+    patch: Partial<settingsRepo.ProposalTemplateSettings>,
+    adminId: number | null,
+  ) {
+    return settingsRepo.setProposalTemplateSettings(this.db, patch, adminId);
+  }
+  listContractProposals(limit?: number) {
+    return contractProposalsRepo.listContractProposals(this.db, limit);
+  }
+  getContractProposal(id: number) {
+    return contractProposalsRepo.getContractProposal(this.db, id);
+  }
+  async createContractProposal(input: contractProposalsRepo.ContractProposalInput) {
+    const created = await contractProposalsRepo.createContractProposal(this.db, input);
+    if (input.intakeId || input.sessionId) {
+      await intakeRepo.advanceIntakeToQuoted(this.db, {
+        intakeId: input.intakeId,
+        sessionId: input.sessionId,
+      });
+    }
+    return created;
+  }
+  updateContractProposalStatus(id: number, status: contractProposalsRepo.ContractProposalStatus) {
+    return contractProposalsRepo.updateContractProposalStatus(this.db, id, status);
+  }
 
   async recordWebsiteLead(input: {
     company_name: string;
@@ -204,6 +248,8 @@ export class SupportEngine {
           current_tools: input.current_tools ?? '',
           service_id: input.service_id ?? null,
           service_name: input.service_name ?? '',
+          email: input.email ?? '',
+          contact_person: input.contact_person ?? '',
           language: 'en',
         },
       });
@@ -455,9 +501,17 @@ export class SupportEngine {
     const startedAt = Date.now();
     let session = await this.sessions.getOrCreate(msg.channel, msg.externalUserId);
     const language = detectLanguage(msg.text);
-    if (session.context.language !== language.code) {
+    const detectedEmail = extractEmailFromText(msg.text);
+    const needsLangUpdate = session.context.language !== language.code;
+    const needsEmailUpdate = Boolean(detectedEmail && !session.context.email);
+
+    if (needsLangUpdate || needsEmailUpdate) {
       session = await this.sessions.update(session, {
-        context: { ...session.context, language: language.code, languageLabel: language.label },
+        context: {
+          ...session.context,
+          ...(needsLangUpdate ? { language: language.code, languageLabel: language.label } : {}),
+          ...(needsEmailUpdate ? { email: detectedEmail } : {}),
+        },
       });
       if (await intakeRepo.getIntake(this.db, session.id)) {
         await intakeRepo.upsertIntake(this.db, {
@@ -465,7 +519,10 @@ export class SupportEngine {
           channel: session.channel,
           externalUserId: session.external_user_id,
           tenantId: this.config.tenantId,
-          patch: { language: language.code },
+          patch: {
+            ...(needsLangUpdate ? { language: language.code } : {}),
+            ...(needsEmailUpdate ? { email: detectedEmail } : {}),
+          },
         });
       }
     }

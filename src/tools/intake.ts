@@ -10,6 +10,8 @@ const intakeSchema = z.object({
   current_tools: z.string().max(500).optional(),
   service_name: z.string().max(200).optional(),
   service_id: z.number().int().positive().optional(),
+  email: z.string().max(255).optional(),
+  contact_person: z.string().max(255).optional(),
   language: z.string().max(35).optional(),
 });
 
@@ -35,6 +37,8 @@ export const saveIntakeTool: Tool<typeof intakeSchema> = {
       current_tools: { type: 'string', description: 'Tools the team currently uses, such as "Slack, Notion, Google Sheets".' },
       service_name: { type: 'string', description: 'The Cosmiq service the customer wants, from the service catalog.' },
       service_id: { type: 'integer', description: 'Catalog id of the service they want, when known.' },
+      email: { type: 'string', description: "The customer's work email address, when shared." },
+      contact_person: { type: 'string', description: "The customer's full name or contact person, when shared." },
       language: { type: 'string', description: 'ISO language code the customer writes in, such as "en" or "hi".' },
     },
     additionalProperties: false,
@@ -67,6 +71,8 @@ export const saveIntakeTool: Tool<typeof intakeSchema> = {
         current_tools: input.current_tools,
         service_name: serviceName || undefined,
         service_id: input.service_name !== undefined || input.service_id !== undefined ? serviceId : undefined,
+        email: input.email,
+        contact_person: input.contact_person,
         language: input.language ?? (typeof context.session.context.language === 'string' ? context.session.context.language : undefined),
       },
     });

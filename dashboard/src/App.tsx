@@ -3,6 +3,7 @@ import { api, ApiError, type AdminMe } from './api';
 import { LoginView } from './Login';
 import { PriceTables } from './PriceTables';
 import { Quotes } from './Quotes';
+import { Proposals } from './Proposals';
 import { Approvals } from './Approvals';
 import { LiveConversations } from './LiveConversations';
 import { NotificationBell } from './NotificationBell';
@@ -10,7 +11,7 @@ import { ServiceModal } from './ServiceModal';
 import { ServiceSettingsModal } from './ServiceSettingsModal';
 
 type AnyRow = Record<string, any>;
-type TabKey = 'overview' | 'inbox' | 'intakes' | 'quotes' | 'services' | 'logs';
+type TabKey = 'overview' | 'inbox' | 'intakes' | 'quotes' | 'proposals' | 'services' | 'logs';
 type ThemeMode = 'light' | 'dark';
 type IntakeDateFilter = 'all' | 'today' | 'yesterday' | '7d' | 'month';
 type IntakeStatusFilter = 'all' | 'collecting' | 'collected' | 'quoted' | 'deal_won' | 'completed';
@@ -383,8 +384,17 @@ export function App() {
           onClick={() => setActiveTab('quotes')}
         >
           <span className="tab-index">04</span>
-          <span>PROPOSALS &amp; QUOTES</span>
+          <span>INVOICE</span>
           {approvalsCount > 0 && <span className="tab-badge alert">{approvalsCount} PENDING</span>}
+        </button>
+
+        <button
+          type="button"
+          className={`tab-btn ${activeTab === 'proposals' ? 'active' : ''}`}
+          onClick={() => setActiveTab('proposals')}
+        >
+          <span className="tab-index">05</span>
+          <span>PROPOSAL</span>
         </button>
 
         <button
@@ -392,7 +402,7 @@ export function App() {
           className={`tab-btn ${activeTab === 'services' ? 'active' : ''}`}
           onClick={() => setActiveTab('services')}
         >
-          <span className="tab-index">05</span>
+          <span className="tab-index">06</span>
           <span>CATALOG &amp; PRICING</span>
           <span className="tab-badge">{services.length}</span>
         </button>
@@ -402,7 +412,7 @@ export function App() {
           className={`tab-btn ${activeTab === 'logs' ? 'active' : ''}`}
           onClick={() => setActiveTab('logs')}
         >
-          <span className="tab-index">06</span>
+          <span className="tab-index">07</span>
           <span>TELEMETRY &amp; LOGS</span>
         </button>
       </nav>
@@ -696,7 +706,7 @@ export function App() {
         </section>
       )}
 
-      {/* 04 PROPOSALS & QUOTES */}
+      {/* 04 INVOICE */}
       {activeTab === 'quotes' && (
         <div className="stack">
           <Approvals refreshKey={dataVersion} onChanged={load} />
@@ -704,7 +714,10 @@ export function App() {
         </div>
       )}
 
-      {/* 05 CATALOG & PRICING */}
+      {/* 05 PROPOSAL */}
+      {activeTab === 'proposals' && <Proposals refreshKey={dataVersion} />}
+
+      {/* 06 CATALOG & PRICING */}
       {activeTab === 'services' && (
         <div className="split-grid">
           <section className="card">
@@ -791,7 +804,7 @@ export function App() {
         </div>
       )}
 
-      {/* 06 TELEMETRY & LOGS */}
+      {/* 07 TELEMETRY & LOGS */}
       {activeTab === 'logs' && (
         <div className="split-grid-logs">
           <section className="card">

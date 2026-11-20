@@ -19,6 +19,18 @@ interface IntakeItem {
   current_tools: string;
   service_name: string;
   service_id: number | null;
+  email?: string;
+  contact_person?: string;
+}
+
+function detectEmailFromLead(lead: IntakeItem): string {
+  const candidates = [lead.email, lead.external_user_id, lead.company_name, lead.current_tools];
+  for (const val of candidates) {
+    if (!val) continue;
+    const match = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.exec(val);
+    if (match) return match[0].trim();
+  }
+  return '';
 }
 
 interface ProposalLineItem {
@@ -60,7 +72,7 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
 
   const [items, setItems] = useState<ProposalLineItem[]>([]);
   const [selectedServiceId, setSelectedServiceId] = useState<string>('');
-  const [marginPercent, setMarginPercent] = useState<number>(0);
+  const [invoiceStatus, setInvoiceStatus] = useState<'pending' | 'paid'>('pending');
   const [terms, setTerms] = useState('');
   const [notes, setNotes] = useState('');
 
@@ -70,7 +82,7 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
 
   useEffect(() => {
     Promise.all([
-      api<{ intakes: IntakeItem[] }>('/api/intakes?limit=50').catch(() => ({ intakes: [] })),
+      api<{ intakes: IntakeItem[] }>('/api/intakes?limit=100').catch(() => ({ intakes: [] })),
       api<{ services: ServiceItem[] }>('/api/services').catch(() => ({ services: [] })),
       api<any>('/api/settings').catch(() => ({})),
     ])
@@ -85,9 +97,6 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
         if (settingsData.defaultTermsAndConditions) {
           setTerms(settingsData.defaultTermsAndConditions);
         }
-        if (settingsData.quoteMarginPercent) {
-          setMarginPercent(settingsData.quoteMarginPercent);
-        }
 
         // If active services exist, pre-select first service
         const avail = rawServices.filter((s: ServiceItem) => s.status === 'available');
@@ -98,13 +107,15 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
       .finally(() => setLoading(false));
   }, []);
 
-  // When an existing intake lead is selected, auto-populate client fields
+  // When an existing intake lead is selected, auto-populate client fields including work email
   function handleSelectIntake(intakeIdStr: string) {
     setSelectedIntakeId(intakeIdStr);
     const found = intakes.find((i) => String(i.id) === intakeIdStr);
     if (!found) return;
 
-    setClientName(found.company_name || 'Client');
+    const detectedEmail = detectEmailFromLead(found);
+    setClientName(found.company_name || found.contact_person || 'Client');
+    setClientEmail(detectedEmail);
     setClientPhone(found.external_user_id || '');
     setChannel(found.channel || 'direct');
     if (found.company_size && ['0-5', '5-10', '10-20', '20+'].includes(found.company_size)) {
@@ -193,10 +204,9 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
   }
 
   const subtotalInr = items.reduce((sum, it) => sum + (it.quantity * it.unitPriceInr), 0);
-  const marginInr = Math.round((subtotalInr * marginPercent) / 100);
-  const totalInr = subtotalInr + marginInr;
+  const totalInr = subtotalInr;
 
-  async function submitProposal(andDownloadPdf: boolean) {
+  async function submitInvoice(andDownloadPdf: boolean) {
     if (!clientName.trim()) {
       setError('Please provide a Client or Company name.');
       return;
@@ -221,8 +231,9 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
         clientEmail: clientEmail.trim() || undefined,
         companySize,
         serviceId: items[0]?.serviceId || null,
-        serviceName: items[0]?.description || 'Commercial Proposal',
-        marginPercent,
+        serviceName: items[0]?.description || 'Commercial Invoice',
+        marginPercent: 0,
+        status: invoiceStatus,
         termsAndConditions: terms,
         notes,
         items: items.map((it) => ({
@@ -242,11 +253,10 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
       });
 
       if (andDownloadPdf && result.id) {
-        // Trigger instant PDF download
         const downloadUrl = `/api/quotes/${result.id}/pdf`;
         const a = document.createElement('a');
         a.href = downloadUrl;
-        a.download = `${result.quote_number || 'proposal'}.pdf`;
+        a.download = `${result.quote_number || 'invoice'}.pdf`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -255,7 +265,7 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
       onSaved();
       onClose();
     } catch (err: any) {
-      setError(err instanceof Error ? err.message : 'Failed to create proposal.');
+      setError(err instanceof Error ? err.message : 'Failed to create invoice.');
     } finally {
       setBusy(false);
     }
@@ -274,7 +284,7 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
       }}>
         <div className="panel-title" style={{ marginBottom: 14 }}>
           <div>
-            <strong>NEW COMMERCIAL PROPOSAL</strong>
+            <strong>NEW COMMERCIAL INVOICE</strong>
             <span className="pill" style={{ marginLeft: 8 }}>PDF GENERATOR</span>
           </div>
           <button type="button" className="banner-close" onClick={onClose}>✕</button>
@@ -283,7 +293,7 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
         {error && <div className="banner error" style={{ marginBottom: 14 }}>{error}</div>}
 
         {loading ? (
-          <div className="muted small" style={{ padding: 32, textAlign: 'center' }}>Loading proposal components…</div>
+          <div className="muted small" style={{ padding: 32, textAlign: 'center' }}>Loading invoice components…</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {/* Step 1: Lead Selection */}
@@ -332,7 +342,7 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
                 </div>
               ) : null}
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginTop: 10 }}>
                 <label>
                   Company / Client Name *
                   <input
@@ -362,6 +372,17 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
                     onChange={(e) => setClientPhone(e.target.value)}
                     placeholder="+91 98765 43210"
                   />
+                </label>
+
+                <label>
+                  Invoice Status
+                  <select
+                    value={invoiceStatus}
+                    onChange={(e) => setInvoiceStatus(e.target.value as 'pending' | 'paid')}
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="paid">Paid Invoice</option>
+                  </select>
                 </label>
               </div>
             </div>
@@ -426,7 +447,7 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
 
               {items.length === 0 ? (
                 <div className="muted small" style={{ padding: '24px 12px', textAlign: 'center', border: '1px dashed var(--border-default)', borderRadius: 4 }}>
-                  No line items added yet. Click <strong>+ Add Service</strong> above to populate proposal deliverables.
+                  No line items added yet. Click <strong>+ Add Service</strong> above to populate invoice deliverables.
                 </div>
               ) : (
                 <div className="table-wrap">
@@ -508,19 +529,8 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
                     <strong className="mono">{formatInr(subtotalInr)}</strong>
                   </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span className="muted">Margin / Adj (%):</span>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={marginPercent}
-                      onChange={(e) => setMarginPercent(Number(e.target.value))}
-                      style={{ width: 80, padding: '2px 6px', fontSize: '11px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}
-                    />
-                  </div>
-
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'var(--stone-900)', color: '#fff', borderRadius: 4, marginTop: 4 }}>
-                    <strong>GRAND TOTAL:</strong>
+                    <strong>INVOICE TOTAL:</strong>
                     <strong className="mono" style={{ color: 'var(--accent-primary)', fontSize: '0.95rem' }}>{formatInr(totalInr)}</strong>
                   </div>
                 </div>
@@ -532,13 +542,13 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
               <span className="stat-label">STEP 04 // TERMS &amp; INTERNAL NOTES</span>
               <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 12, marginTop: 10 }}>
                 <label>
-                  Proposal Terms &amp; Conditions (Printed on PDF)
+                  Invoice Terms &amp; Conditions (Printed on PDF)
                   <textarea
                     rows={4}
                     value={terms}
                     onChange={(e) => setTerms(e.target.value)}
                     style={{ width: '100%', fontSize: '11px', fontFamily: 'var(--font-mono)' }}
-                    placeholder="Proposal terms and payment schedule…"
+                    placeholder="Invoice terms and payment schedule…"
                   />
                 </label>
 
@@ -564,15 +574,15 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
                 type="button"
                 className="btn secondary"
                 disabled={busy}
-                onClick={() => submitProposal(false)}
+                onClick={() => submitInvoice(false)}
               >
-                {busy ? 'Saving…' : 'Save Proposal'}
+                {busy ? 'Saving…' : 'Save Invoice'}
               </button>
               <button
                 type="button"
                 className="btn primary"
                 disabled={busy}
-                onClick={() => submitProposal(true)}
+                onClick={() => submitInvoice(true)}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
               >
                 <span>{busy ? 'Generating…' : 'Save & Download PDF'}</span>

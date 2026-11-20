@@ -1822,8 +1822,38 @@ tr:hover td {
   color: #2dd4bf;
 }
 
-.lead-status-select.status-completed {
+.lead-status-select.status-completed,
+.lead-status-select.status-paid,
+.lead-status-select.status-accepted {
   border-color: color-mix(in srgb, var(--status-success) 45%, transparent);
   color: var(--status-success);
   background: color-mix(in srgb, var(--status-success) 12%, var(--bg-elevated));
+}
+
+.lead-status-select.status-pending {
+  border-color: color-mix(in srgb, var(--orange-500) 55%, transparent);
+  color: var(--orange-600);
+  background: color-mix(in srgb, var(--orange-500) 14%, var(--bg-elevated));
+}
+
+[data-theme='dark'] .lead-status-select.status-pending {
+  color: #fb923c;
+}
+
+.lead-status-select.status-sent {
+  border-color: color-mix(in srgb, #2563eb 45%, transparent);
+  color: #2563eb;
+  background: color-mix(in srgb, #2563eb 10%, var(--bg-elevated));
+}
+
+[data-theme='dark'] .lead-status-select.status-sent {
+  color: #60a5fa;
+  border-color: color-mix(in srgb, #3b82f6 50%, transparent);
+  background: color-mix(in srgb, #3b82f6 16%, var(--bg-elevated));
+}
+
+.lead-status-select.status-rejected {
+  border-color: color-mix(in srgb, var(--status-danger) 45%, transparent);
+  color: var(--status-danger);
+  background: color-mix(in srgb, var(--status-danger) 12%, var(--bg-elevated));
 }

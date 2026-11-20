@@ -9,6 +9,31 @@ import {
 export const QUOTE_MARGIN_KEY = 'quote_margin_percent';
 export const COMPANY_SIZE_MULTIPLIERS_KEY = 'company_size_multipliers';
 export const DEFAULT_TERMS_KEY = 'default_terms_and_conditions';
+export const PROPOSAL_SETTINGS_KEY = 'proposal_template_settings';
+
+export interface ProposalTemplateSettings {
+  ourCompanyName: string;
+  ourCompanyDetails: string;
+  signerName: string;
+  signerDesignation: string;
+  signerSignatureData: string;
+  defaultDataPrivacy: string;
+}
+
+export const DEFAULT_PROPOSAL_DATA_PRIVACY = [
+  '1. Data Use and Protection: No client data shall be used to train, fine-tune, or improve any model, system, or product serving any other client or party. Client data shall be used solely for delivering and improving services within the client automation system.',
+  '2. Intellectual Property: Cosmiq OS retains full ownership of its core platform, workflows, prompts, software intellectual property, and reusable templates. The client retains full ownership of all of its own data, records, and confidential business information.',
+  '3. Confidentiality: Each party shall keep confidential all non-public information received from the other in connection with this proposal and shall not disclose it to any third party without prior written consent, except as required by law.',
+].join('\n\n');
+
+export const DEFAULT_PROPOSAL_SETTINGS: ProposalTemplateSettings = {
+  ourCompanyName: 'Cosmiq OS',
+  ourCompanyDetails: 'AI Native Automation & System Solutions\nWebsite: cosmiqos.com | Support: ops@cosmiqos.com',
+  signerName: '',
+  signerDesignation: 'Co-Founder',
+  signerSignatureData: '',
+  defaultDataPrivacy: DEFAULT_PROPOSAL_DATA_PRIVACY,
+};
 
 export const COMPANY_SIZE_KEYS = ['0-5', '5-10', '10-20', '20+'] as const;
 export type CompanySizeKey = (typeof COMPANY_SIZE_KEYS)[number];
@@ -226,4 +251,59 @@ export async function ensureDefaultSettings(db: DBExecutor, seedMarginPercent: n
     await setDefaultTermsAndConditions(db, DEFAULT_TERMS_AND_CONDITIONS, null);
   }
   return getAllSettings(db);
+}
+
+export async function getProposalTemplateSettings(db: DBExecutor): Promise<ProposalTemplateSettings> {
+  const raw = await getSetting(db, PROPOSAL_SETTINGS_KEY);
+  if (raw === undefined) return { ...DEFAULT_PROPOSAL_SETTINGS };
+  try {
+    const parsed = JSON.parse(raw) as Partial<ProposalTemplateSettings> | null;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { ...DEFAULT_PROPOSAL_SETTINGS };
+    }
+    return {
+      ourCompanyName:
+        typeof parsed.ourCompanyName === 'string' && parsed.ourCompanyName.trim()
+          ? parsed.ourCompanyName
+          : DEFAULT_PROPOSAL_SETTINGS.ourCompanyName,
+      ourCompanyDetails:
+        typeof parsed.ourCompanyDetails === 'string'
+          ? parsed.ourCompanyDetails
+          : DEFAULT_PROPOSAL_SETTINGS.ourCompanyDetails,
+      signerName: typeof parsed.signerName === 'string' ? parsed.signerName : '',
+      signerDesignation:
+        typeof parsed.signerDesignation === 'string' && parsed.signerDesignation.trim()
+          ? parsed.signerDesignation
+          : DEFAULT_PROPOSAL_SETTINGS.signerDesignation,
+      signerSignatureData:
+        typeof parsed.signerSignatureData === 'string' ? parsed.signerSignatureData : '',
+      defaultDataPrivacy:
+        typeof parsed.defaultDataPrivacy === 'string'
+          ? parsed.defaultDataPrivacy
+          : DEFAULT_PROPOSAL_SETTINGS.defaultDataPrivacy,
+    };
+  } catch {
+    return { ...DEFAULT_PROPOSAL_SETTINGS };
+  }
+}
+
+export async function setProposalTemplateSettings(
+  db: DBExecutor,
+  patch: Partial<ProposalTemplateSettings>,
+  updatedBy: number | null,
+): Promise<ProposalTemplateSettings> {
+  const current = await getProposalTemplateSettings(db);
+  const next: ProposalTemplateSettings = {
+    ourCompanyName: patch.ourCompanyName !== undefined ? patch.ourCompanyName.trim() || 'Cosmiq OS' : current.ourCompanyName,
+    ourCompanyDetails: patch.ourCompanyDetails !== undefined ? patch.ourCompanyDetails : current.ourCompanyDetails,
+    signerName: patch.signerName !== undefined ? patch.signerName : current.signerName,
+    signerDesignation:
+      patch.signerDesignation !== undefined ? patch.signerDesignation : current.signerDesignation,
+    signerSignatureData:
+      patch.signerSignatureData !== undefined ? patch.signerSignatureData : current.signerSignatureData,
+    defaultDataPrivacy:
+      patch.defaultDataPrivacy !== undefined ? patch.defaultDataPrivacy : current.defaultDataPrivacy,
+  };
+  await setSetting(db, PROPOSAL_SETTINGS_KEY, JSON.stringify(next), updatedBy);
+  return next;
 }

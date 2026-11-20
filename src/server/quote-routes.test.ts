@@ -416,7 +416,7 @@ describe('quote API', () => {
     assert.equal(detailBody.quote.decision_note, 'Budget too small for this scope.');
   });
 
-  it('creates a custom multi-service proposal and downloads a valid PDF', async () => {
+  it('creates an invoice without 30% margin, supports pending/paid status updates, and downloads a valid PDF', async () => {
     const res = await fetch(`${base}/api/proposals`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', cookie },
@@ -425,6 +425,8 @@ describe('quote API', () => {
         clientEmail: 'contact@alphaventures.com',
         companySize: '10-20',
         channel: 'website',
+        status: 'pending',
+        marginPercent: 30,
         termsAndConditions: '1. Standard 14-day validity.\n2. 50% advance payment.',
         notes: 'Includes expedited setup and WhatsApp automation.',
         items: [
@@ -447,14 +449,26 @@ describe('quote API', () => {
     });
 
     assert.equal(res.status, 201);
-    const proposal = (await res.json()) as any;
-    assert.ok(proposal.id);
-    assert.ok(proposal.quote_number.startsWith('P-'));
-    assert.equal(proposal.client_name, 'Alpha Ventures Ltd');
-    assert.equal(proposal.total_paise, 10500000);
+    const invoice = (await res.json()) as any;
+    assert.ok(invoice.id);
+    assert.ok(invoice.quote_number.startsWith('INV-'));
+    assert.equal(invoice.client_name, 'Alpha Ventures Ltd');
+    assert.equal(invoice.margin_percent, 0);
+    assert.equal(invoice.margin_paise, 0);
+    assert.equal(invoice.status, 'pending');
+    assert.equal(invoice.total_paise, 10500000);
+
+    const statusPatch: Response = await fetch(`${base}/api/quotes/${invoice.id}/status`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ status: 'paid' }),
+    });
+    assert.equal(statusPatch.status, 200);
+    const paidInvoice = (await statusPatch.json()) as { status: string };
+    assert.equal(paidInvoice.status, 'paid');
 
     // Test PDF download
-    const pdfRes = await fetch(`${base}/api/quotes/${proposal.id}/pdf`, {
+    const pdfRes = await fetch(`${base}/api/quotes/${invoice.id}/pdf`, {
       headers: { cookie },
     });
     assert.equal(pdfRes.status, 200);
@@ -462,5 +476,129 @@ describe('quote API', () => {
     const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
     assert.ok(pdfBuffer.length > 1000);
     assert.equal(pdfBuffer.subarray(0, 5).toString('ascii'), '%PDF-');
+  });
+
+  it('auto-detects lead work email across website leads and chat messages', async () => {
+    const webLeadRes = await fetch(`${base}/api/leads`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        company_name: 'BioNova Research',
+        contact_person: 'Meera Nair',
+        email: 'meera@bionova.io',
+        phone: '+919988776655',
+        service_name: 'Workflow Automation',
+      }),
+    });
+    assert.equal(webLeadRes.status, 201);
+
+    const chatSim = await fetch(`${base}/api/chat/simulate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({
+        channel: 'whatsapp',
+        externalUserId: '917766554433',
+        text: 'Company: Delta Systems; Size: 12; Tools: Notion; Service: Workflow Automation; my email is team@deltasystems.in',
+      }),
+    });
+    assert.equal(chatSim.status, 200);
+
+    const intakesRes = await fetch(`${base}/api/intakes`, { headers: { cookie } });
+    assert.equal(intakesRes.status, 200);
+    const intakes = (await intakesRes.json()) as Array<{
+      company_name: string;
+      email?: string;
+      contact_person?: string;
+    }>;
+
+    const webIntake = intakes.find((i) => i.company_name === 'BioNova Research');
+    assert.ok(webIntake);
+    assert.equal(webIntake.email, 'meera@bionova.io');
+    assert.equal(webIntake.contact_person, 'Meera Nair');
+
+    const waIntake = intakes.find((i) => i.company_name === 'Delta Systems');
+    assert.ok(waIntake);
+    assert.equal(waIntake.email, 'team@deltasystems.in');
+  });
+
+  it('manages proposal settings, standalone contract proposals, status transitions, and inline/download PDFs', async () => {
+    const defaultSettingsRes = await fetch(`${base}/api/proposal-settings`, { headers: { cookie } });
+    assert.equal(defaultSettingsRes.status, 200);
+    const defaultSettings = (await defaultSettingsRes.json()) as {
+      ourCompanyName: string;
+      defaultDataPrivacy: string;
+    };
+    assert.equal(defaultSettings.ourCompanyName, 'Cosmiq OS');
+    assert.ok(defaultSettings.defaultDataPrivacy.length > 20);
+
+    const sampleSig =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+    const saveSettingsRes = await fetch(`${base}/api/proposal-settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({
+        signerName: 'Rinshid VP',
+        signerDesignation: 'Co-Founder',
+        signerSignatureData: sampleSig,
+        defaultDataPrivacy: 'Custom strict NDA and data isolation policy.',
+      }),
+    });
+    assert.equal(saveSettingsRes.status, 200);
+    const savedSettings = (await saveSettingsRes.json()) as {
+      signerName: string;
+      defaultDataPrivacy: string;
+      signerSignatureData: string;
+    };
+    assert.equal(savedSettings.signerName, 'Rinshid VP');
+    assert.equal(savedSettings.signerSignatureData, sampleSig);
+    assert.equal(savedSettings.defaultDataPrivacy, 'Custom strict NDA and data isolation policy.');
+
+    const createRes = await fetch(`${base}/api/contract-proposals`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({
+        clientCompany: 'FQLab and Research Centre Pvt Ltd',
+        clientName: 'Dr. Anand',
+        clientEmail: 'anand@fqlabs.in',
+        scopeOfProject: 'Build automation platform for quotations.',
+        phasesAndTimeline: '60 days build + 4 week pilot.',
+        paymentSchedules: 'Rs 15,000 phase 1; Rs 15,000 phase 2.',
+        dataPrivacy: savedSettings.defaultDataPrivacy,
+        includeSigning: true,
+        signerName: savedSettings.signerName,
+        signerSignatureData: savedSettings.signerSignatureData,
+        status: 'pending',
+      }),
+    });
+    assert.equal(createRes.status, 201);
+    const created = (await createRes.json()) as { id: number; proposal_number: string; status: string };
+    assert.ok(created.proposal_number.startsWith('PROP-'));
+    assert.equal(created.status, 'pending');
+
+    const listRes = await fetch(`${base}/api/contract-proposals`, { headers: { cookie } });
+    assert.equal(listRes.status, 200);
+    const listBody = (await listRes.json()) as { proposals: Array<{ id: number; client_company: string }> };
+    assert.ok(listBody.proposals.some((p) => p.id === created.id && p.client_company === 'FQLab and Research Centre Pvt Ltd'));
+
+    for (const nextStatus of ['sent', 'accepted', 'rejected'] as const) {
+      const patchRes: Response = await fetch(`${base}/api/contract-proposals/${created.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', cookie },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      assert.equal(patchRes.status, 200);
+      assert.equal(((await patchRes.json()) as { status: string }).status, nextStatus);
+    }
+
+    const viewPdf = await fetch(`${base}/api/contract-proposals/${created.id}/pdf`, { headers: { cookie } });
+    assert.equal(viewPdf.status, 200);
+    assert.match(viewPdf.headers.get('content-disposition') ?? '', /^inline;/);
+    const viewBuf = Buffer.from(await viewPdf.arrayBuffer());
+    assert.equal(viewBuf.subarray(0, 5).toString('ascii'), '%PDF-');
+
+    const dlPdf = await fetch(`${base}/api/contract-proposals/${created.id}/pdf?download=1`, { headers: { cookie } });
+    assert.equal(dlPdf.status, 200);
+    assert.match(dlPdf.headers.get('content-disposition') ?? '', /^attachment;/);
   });
 });

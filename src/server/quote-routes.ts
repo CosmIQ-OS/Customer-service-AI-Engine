@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { SupportEngine } from '../engine/support-engine.js';
 import { MAX_QUOTE_MARGIN, MIN_QUOTE_MARGIN } from '../pricing/margin.js';
 import { generateProposalPdf } from '../pricing/proposal-pdf.js';
+import { generateContractProposalPdf } from '../pricing/contract-proposal-pdf.js';
 import { asyncHandler } from './async-handler.js';
 
 const marginSchema = z.object({
@@ -88,9 +89,56 @@ const createProposalSchema = z.object({
   serviceId: z.number().int().positive().nullable().optional(),
   serviceName: z.string().max(255).optional(),
   marginPercent: z.number().finite().optional(),
+  status: z.enum(['pending', 'paid', 'draft']).optional(),
   termsAndConditions: z.string().max(50_000).optional(),
   notes: z.string().max(2000).optional(),
   items: z.array(proposalItemSchema).min(1).max(100),
+});
+
+const updateInvoiceStatusSchema = z.object({
+  status: z.enum(['pending', 'paid', 'draft', 'approved', 'rejected']),
+});
+
+const proposalSettingsSchema = z.object({
+  ourCompanyName: z.string().max(255).optional(),
+  ourCompanyDetails: z.string().max(5000).optional(),
+  signerName: z.string().max(255).optional(),
+  signerDesignation: z.string().max(255).optional(),
+  signerSignatureData: z.string().max(2_000_000).optional(),
+  defaultDataPrivacy: z.string().max(50_000).optional(),
+});
+
+const contractProposalStatusEnum = z.enum(['sent', 'pending', 'accepted', 'rejected']);
+
+const createContractProposalSchema = z.object({
+  intakeId: z.number().int().positive().nullable().optional(),
+  sessionId: z.string().nullable().optional(),
+  channel: z.string().max(50).optional(),
+  ourCompanyName: z.string().max(255).optional(),
+  ourCompanyDetails: z.string().max(5000).optional(),
+  clientCompany: z.string().trim().min(1, 'Customer company name is required').max(255),
+  clientName: z.string().max(255).optional(),
+  clientEmail: z.string().max(255).optional(),
+  clientPhone: z.string().max(255).optional(),
+  clientDesignation: z.string().max(255).optional(),
+  proposalDate: z.string().max(50).optional(),
+  scopeOfProject: z.string().max(50_000).optional(),
+  phasesAndTimeline: z.string().max(50_000).optional(),
+  paymentSchedules: z.string().max(50_000).optional(),
+  successMetrics: z.string().max(50_000).optional(),
+  ongoingCost: z.string().max(50_000).optional(),
+  supportAndWarranty: z.string().max(50_000).optional(),
+  dataPrivacy: z.string().max(50_000).optional(),
+  includeSigning: z.boolean().optional(),
+  signerName: z.string().max(255).optional(),
+  signerDesignation: z.string().max(255).optional(),
+  signerSignatureData: z.string().max(2_000_000).optional(),
+  clientSignatureData: z.string().max(2_000_000).optional(),
+  status: contractProposalStatusEnum.optional(),
+});
+
+const updateContractProposalStatusSchema = z.object({
+  status: contractProposalStatusEnum,
 });
 
 export function createQuoteRouter(engine: SupportEngine): Router {
@@ -223,6 +271,16 @@ export function createQuoteRouter(engine: SupportEngine): Router {
     }
   }));
 
+  router.patch('/quotes/:id/status', asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid invoice id' });
+    const parsed = updateInvoiceStatusSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid invoice status.' });
+    const updated = await engine.updateQuoteStatus(id, parsed.data.status, res.locals.admin?.id ?? null);
+    if (!updated) return res.status(404).json({ error: 'Invoice not found' });
+    res.json(updated);
+  }));
+
   router.post('/quotes/:id/approve', asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid quote id' });
@@ -261,9 +319,9 @@ export function createQuoteRouter(engine: SupportEngine): Router {
 
   router.get(['/quotes/:id/pdf', '/proposals/:id/pdf'], asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid quote id' });
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid invoice id' });
     const found = await engine.getQuote(id);
-    if (!found) return res.status(404).json({ error: 'Quote not found' });
+    if (!found) return res.status(404).json({ error: 'Invoice not found' });
 
     const quote = found.quote;
     const items = found.items;
@@ -272,6 +330,7 @@ export function createQuoteRouter(engine: SupportEngine): Router {
       quoteNumber: quote.quote_number,
       date: (quote.created_at || '').slice(0, 10) || new Date().toISOString().slice(0, 10),
       validUntil: quote.expires_at ? quote.expires_at.slice(0, 10) : undefined,
+      status: quote.status,
       clientName: quote.client_name || quote.service_name || 'Valued Client',
       clientCompany: quote.client_name || quote.service_name,
       clientEmail: quote.client_email || undefined,
@@ -287,14 +346,77 @@ export function createQuoteRouter(engine: SupportEngine): Router {
         lineTotalPaise: it.line_total_paise,
       })),
       subtotalPaise: quote.subtotal_paise,
-      marginPercent: quote.margin_percent,
+      marginPercent: 0,
       totalPaise: quote.total_paise,
       termsAndConditions: quote.terms_and_conditions || undefined,
       notes: quote.notes || undefined,
     });
 
+    const disposition = req.query.inline === '1' ? 'inline' : 'attachment';
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${quote.quote_number}.pdf"`);
+    res.setHeader('Content-Disposition', `${disposition}; filename="${quote.quote_number}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+  }));
+
+  router.get('/proposal-settings', asyncHandler(async (_req, res) => {
+    res.json(await engine.getProposalTemplateSettings());
+  }));
+
+  router.put('/proposal-settings', asyncHandler(async (req, res) => {
+    const parsed = proposalSettingsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    const updated = await engine.setProposalTemplateSettings(parsed.data, res.locals.admin?.id ?? null);
+    res.json(updated);
+  }));
+
+  router.get('/contract-proposals', asyncHandler(async (req, res) => {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 200);
+    res.json({ proposals: await engine.listContractProposals(limit) });
+  }));
+
+  router.post('/contract-proposals', asyncHandler(async (req, res) => {
+    const parsed = createContractProposalSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    const created = await engine.createContractProposal({
+      ...parsed.data,
+      createdBy: res.locals.admin?.username || 'admin',
+    });
+    res.status(201).json(created);
+  }));
+
+  router.get('/contract-proposals/:id', asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid proposal id' });
+    const found = await engine.getContractProposal(id);
+    if (!found) return res.status(404).json({ error: 'Proposal not found' });
+    res.json(found);
+  }));
+
+  router.patch('/contract-proposals/:id', asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid proposal id' });
+    const parsed = updateContractProposalStatusSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid proposal status.' });
+    const updated = await engine.updateContractProposalStatus(id, parsed.data.status);
+    if (!updated) return res.status(404).json({ error: 'Proposal not found' });
+    res.json(updated);
+  }));
+
+  router.get('/contract-proposals/:id/pdf', asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid proposal id' });
+    const found = await engine.getContractProposal(id);
+    if (!found) return res.status(404).json({ error: 'Proposal not found' });
+
+    const pdfBuffer = await generateContractProposalPdf(found);
+    const disposition = req.query.download === '1' ? 'attachment' : 'inline';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `${disposition}; filename="${found.proposal_number}.pdf"`);
     res.setHeader('Content-Length', pdfBuffer.length);
     res.send(pdfBuffer);
   }));
