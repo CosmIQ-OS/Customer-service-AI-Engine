@@ -7,6 +7,7 @@ import { Proposals } from './Proposals';
 import { Approvals } from './Approvals';
 import { LiveConversations } from './LiveConversations';
 import { NotificationBell } from './NotificationBell';
+import type { NotificationTarget } from './useNotificationAlerts';
 import { ServiceModal } from './ServiceModal';
 import { ServiceSettingsModal } from './ServiceSettingsModal';
 
@@ -121,6 +122,7 @@ export function App() {
   const [intakeStatusFilter, setIntakeStatusFilter] = useState<IntakeStatusFilter>('all');
   const [updatingLeadId, setUpdatingLeadId] = useState<number | null>(null);
   const [deletingLeadId, setDeletingLeadId] = useState<number | null>(null);
+  const [highlightedLead, setHighlightedLead] = useState<{ intakeId?: number | null; sessionId?: string | null } | null>(null);
   const [logFilter, setLogFilter] = useState<'all' | 'inbound' | 'outbound' | 'system'>('all');
 
   const [showServiceModal, setShowServiceModal] = useState(false);
@@ -257,6 +259,34 @@ export function App() {
     return () => clearInterval(interval);
   }, [admin, load]);
 
+  const handleNotificationNavigate = useCallback((target: NotificationTarget) => {
+    setActiveTab(target.tab);
+    if (target.tab === 'intakes' && (target.intakeId || target.sessionId)) {
+      setIntakeSearch('');
+      setIntakeChannelFilter('all');
+      setIntakeDateFilter('all');
+      setIntakeStatusFilter('all');
+      setHighlightedLead({ intakeId: target.intakeId, sessionId: target.sessionId });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!highlightedLead || activeTab !== 'intakes') return;
+    const match = intakes.find(
+      (row) =>
+        (highlightedLead.intakeId != null && row.id === highlightedLead.intakeId) ||
+        (highlightedLead.sessionId && row.session_id === highlightedLead.sessionId),
+    );
+    if (match) {
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`lead-row-${match.id}`);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    }
+    const timer = setTimeout(() => setHighlightedLead(null), 6000);
+    return () => clearTimeout(timer);
+  }, [highlightedLead, activeTab, intakes]);
+
   async function logout() {
     await api('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
     setAdmin(null);
@@ -350,7 +380,10 @@ export function App() {
 
           <NotificationBell
             refreshKey={dataVersion}
-            onNavigate={(tab) => setActiveTab(tab)}
+            onNavigate={handleNotificationNavigate}
+            onNotificationArrived={() => {
+              void load(false);
+            }}
           />
 
           <button
@@ -666,6 +699,14 @@ export function App() {
           <Table
             cols={['Channel', 'Client ID', 'Company', 'Size', 'Tools Stack', 'Requested Service', 'Lang', 'Status', '', 'Updated']}
             rows={filteredIntakes}
+            rowId={(r) => `lead-row-${r.id}`}
+            rowClassName={(r) =>
+              highlightedLead &&
+              ((highlightedLead.intakeId != null && r.id === highlightedLead.intakeId) ||
+                (highlightedLead.sessionId && r.session_id === highlightedLead.sessionId))
+                ? 'lead-row-highlight'
+                : ''
+            }
             render={(r) => {
               const currentStatus = normalizeLeadStatus(r.status);
               return [
@@ -950,7 +991,19 @@ export function App() {
   );
 }
 
-function Table({ cols, rows, render }: { cols: string[]; rows: AnyRow[]; render: (r: AnyRow) => any[] }) {
+function Table({
+  cols,
+  rows,
+  render,
+  rowClassName,
+  rowId,
+}: {
+  cols: string[];
+  rows: AnyRow[];
+  render: (r: AnyRow) => any[];
+  rowClassName?: (r: AnyRow) => string;
+  rowId?: (r: AnyRow) => string;
+}) {
   if (!rows.length) {
     return (
       <div className="muted small" style={{ padding: '24px 0', textAlign: 'center', border: '1px solid var(--border-default)', background: 'var(--bg-elevated)' }}>
@@ -970,7 +1023,7 @@ function Table({ cols, rows, render }: { cols: string[]; rows: AnyRow[]; render:
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={r.id ?? i}>
+            <tr key={r.id ?? i} id={rowId ? rowId(r) : undefined} className={rowClassName ? rowClassName(r) : undefined}>
               {render(r).map((cell, j) => (
                 <td key={j}>{cell}</td>
               ))}

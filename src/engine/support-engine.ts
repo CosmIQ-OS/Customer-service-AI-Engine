@@ -30,6 +30,8 @@ import { AgentLoop, type AgentRunResult, type ExecutedToolCall } from '../kernel
 import { createSupportTools } from '../tools/index.js';
 import type { LLMProvider } from '../llm/types.js';
 import { SUPPORT_PROMPT_VERSION } from '../llm/prompts.js';
+import { NotificationHub } from '../notifications/notification-hub.js';
+import { LeadNotifier } from '../notifications/lead-notifier.js';
 
 export interface EngineConfig {
   sessionTtlMinutes: number;
@@ -45,12 +47,17 @@ export interface EngineConfig {
   approvalWindowHours?: number;
   /** Minutes a human-owned conversation may stay idle before it closes. Defaults to 60. */
   conversationIdleMinutes?: number;
+  dashboardPublicUrl?: string;
+  whatsappAdminNumbers?: string;
+  telegramAdminChatIds?: string;
   now?: () => Date;
 }
 
 export class SupportEngine {
   readonly sessions: SessionStore;
   readonly adapters = new AdapterRegistry();
+  readonly notificationHub = new NotificationHub();
+  readonly leadNotifier: LeadNotifier;
   readonly agentLoop: AgentLoop;
   readonly pricingAgent: PricingAgent;
   readonly quoteBuilder: QuoteBuilder;
@@ -59,11 +66,23 @@ export class SupportEngine {
 
   constructor(readonly db: DB, private readonly config: EngineConfig) {
     this.sessions = new SessionStore(db, config.sessionTtlMinutes);
+    this.leadNotifier = new LeadNotifier({
+      db,
+      adapters: this.adapters,
+      hub: this.notificationHub,
+      dashboardPublicUrl: config.dashboardPublicUrl,
+      envDefaults: {
+        whatsappAdminNumbers: config.whatsappAdminNumbers,
+        telegramAdminChatIds: config.telegramAdminChatIds,
+      },
+      now: config.now,
+    });
     this.conversations = new ConversationService({
       db,
       tenantId: config.tenantId,
       idleMinutes: config.conversationIdleMinutes ?? DEFAULT_IDLE_MINUTES,
       now: config.now,
+      onNotification: (notification) => this.leadNotifier.broadcastNotification(notification),
     });
     this.agentLoop = new AgentLoop({
       db,
@@ -78,6 +97,7 @@ export class SupportEngine {
     this.approvals = new ApprovalService(db, {
       windowHours: config.approvalWindowHours,
       now: config.now,
+      onNotification: (notification) => this.leadNotifier.broadcastNotification(notification),
     });
   }
 
@@ -269,16 +289,20 @@ export class SupportEngine {
         },
       });
       await intakeRepo.markIntakeComplete(tx, sessionId);
+      const completedIntake = (await intakeRepo.getIntake(tx, sessionId)) ?? intake;
 
-      await notificationsRepo.createNotification(tx, {
+      const notification = await notificationsRepo.createNotification(tx, {
         kind: 'website_lead',
+        intake_id: completedIntake.id,
         session_id: sessionId,
         title: `New Website Lead: ${input.company_name}`,
         body: `${input.contact_person || 'Website visitor'} submitted lead inquiry for ${input.service_name || 'Services'}.`,
       });
 
-      return { sessionId, intakeId: intake.id };
+      return { sessionId, intakeId: completedIntake.id, intake: completedIntake, notification };
     });
+
+    await this.leadNotifier.notifyWebsiteLeadRecorded(result.notification, result.intake);
 
     return { sessionId: result.sessionId, intakeId: result.intakeId };
   }
@@ -345,8 +369,28 @@ export class SupportEngine {
     return notificationsRepo.listNotifications(this.db, options);
   }
 
-  markNotificationRead(id: number) { return notificationsRepo.markNotificationRead(this.db, id); }
-  markAllNotificationsRead() { return notificationsRepo.markAllNotificationsRead(this.db); }
+  async markNotificationRead(id: number) {
+    const updated = await notificationsRepo.markNotificationRead(this.db, id);
+    if (updated) await this.leadNotifier.broadcastUnreadCount();
+    return updated;
+  }
+  async markAllNotificationsRead() {
+    const count = await notificationsRepo.markAllNotificationsRead(this.db);
+    await this.leadNotifier.broadcastUnreadCount();
+    return count;
+  }
+  getLeadNotificationSettingsView() {
+    return this.leadNotifier.getSettingsView();
+  }
+  updateLeadNotificationSettings(
+    patch: Parameters<typeof settingsRepo.setLeadNotificationSettings>[1],
+    adminId: number | null,
+  ) {
+    return this.leadNotifier.updateSettings(patch, adminId);
+  }
+  sendTestLeadNotification() {
+    return this.leadNotifier.sendTestAlert();
+  }
 
   /** Live conversations: who answers, what is waiting, and the idle sweep. */
   listConversations(limit?: number) { return this.conversations.list(limit); }
@@ -513,6 +557,18 @@ export class SupportEngine {
   }
 
   async handleMessage(msg: InboundMessage): Promise<EngineResponse> {
+    if (msg.channel === 'whatsapp') {
+      const adminCheck = await this.leadNotifier.handleInboundWhatsappAdminCheck(msg.externalUserId, msg.text);
+      if (adminCheck.intercepted) {
+        return {
+          reply: adminCheck.reply ?? '',
+          intent: 'admin_keepalive',
+          sessionId: '',
+          data: { adminKeepalive: true },
+        };
+      }
+    }
+
     const startedAt = Date.now();
     let session = await this.sessions.getOrCreate(msg.channel, msg.externalUserId);
     const language = detectLanguage(msg.text);
@@ -583,11 +639,23 @@ export class SupportEngine {
     }
 
     try {
+      const intakeBefore = await intakeRepo.getIntake(this.db, session.id);
       const history = await messagesRepo.listRecentMessages(this.db, session.id, this.config.maxHistory);
       const result = await this.agentLoop.run({ session, history, tenantId: this.config.tenantId });
       const response = await this.completeTurn(session, msg, result, startedAt);
 
       const intake = await intakeRepo.getIntake(this.db, session.id);
+      if (!intakeBefore && intake) {
+        const kind = isIntakeReady(intake.status) ? 'lead_qualified' : 'lead_started';
+        await this.leadNotifier.notifyIntakeLead(kind, intake).catch((error) => {
+          console.error('[notifications] failed to notify new lead', error);
+        });
+      } else if (intakeBefore && !isIntakeReady(intakeBefore.status) && intake && isIntakeReady(intake.status)) {
+        await this.leadNotifier.notifyIntakeLead('lead_qualified', intake).catch((error) => {
+          console.error('[notifications] failed to notify qualified lead', error);
+        });
+      }
+
       if (intake && isIntakeReady(intake.status)) {
         const existing = await quotesRepo.latestQuoteForSession(this.db, session.id);
         if (existing) {

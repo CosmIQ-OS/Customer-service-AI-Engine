@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { openDatabase } from './db/database.js';
 import { SupportEngine } from './engine/support-engine.js';
 import { TelegramAdapter, parseAdminChatIds } from './adapters/telegram.js';
-import { WhatsAppAdapter } from './adapters/whatsapp.js';
+import { WhatsAppAdapter, parseAdminPhoneNumbers } from './adapters/whatsapp.js';
 import { createApp } from './server/app.js';
 import { loadConfig, resolveDatabaseTarget } from './config/index.js';
 import { createLLMProvider } from './llm/index.js';
@@ -38,6 +38,9 @@ export async function bootstrap() {
     pricingModel: config.PRICING_LLM_MODEL ?? config.LLM_MODEL,
     approvalWindowHours: config.QUOTE_APPROVAL_WINDOW_HOURS,
     conversationIdleMinutes: config.CONVERSATION_IDLE_MINUTES,
+    dashboardPublicUrl: config.DASHBOARD_PUBLIC_URL,
+    whatsappAdminNumbers: config.WHATSAPP_ADMIN_NUMBERS,
+    telegramAdminChatIds: config.TELEGRAM_ADMIN_CHAT_IDS,
   });
 
   const telegram = new TelegramAdapter({
@@ -48,6 +51,7 @@ export async function bootstrap() {
   const whatsapp = new WhatsAppAdapter({
     accessToken: config.WHATSAPP_ACCESS_TOKEN,
     phoneNumberId: config.WHATSAPP_PHONE_NUMBER_ID,
+    adminNumbers: parseAdminPhoneNumbers(config.WHATSAPP_ADMIN_NUMBERS),
   });
   engine.adapters.register(telegram);
   engine.adapters.register(whatsapp);

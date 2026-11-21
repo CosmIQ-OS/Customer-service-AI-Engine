@@ -97,7 +97,7 @@ describe('quote flow', () => {
     assert.ok(found.quote.expires_at, 'pending quotes carry the approval deadline');
     assert.equal(found.quote.expires_at, found.quote.next_alert_at);
     assert.equal((await engine.approvalSummary()).pending, 1);
-    assert.equal((await engine.approvalSummary()).unread, 1);
+    assert.equal((await engine.approvalSummary()).unread, 2);
     assert.ok((await engine.listLogs(20)).some((log) => log.event === 'quote.pending_approval'));
   });
 

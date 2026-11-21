@@ -4,6 +4,7 @@ export interface AdminNotificationRecord {
   id: number;
   kind: string;
   quote_id: number | null;
+  intake_id: number | null;
   session_id: string | null;
   title: string;
   body: string;
@@ -15,22 +16,24 @@ function map(row: AdminNotificationRecord): AdminNotificationRecord {
   return {
     ...row,
     id: Number(row.id),
-    quote_id: row.quote_id === null ? null : Number(row.quote_id),
+    quote_id: row.quote_id === null || row.quote_id === undefined ? null : Number(row.quote_id),
+    intake_id: row.intake_id === null || row.intake_id === undefined ? null : Number(row.intake_id),
   };
 }
 
 export async function createNotification(
   db: DBExecutor,
   input: Pick<AdminNotificationRecord, 'kind' | 'title' | 'body'> &
-    Partial<Pick<AdminNotificationRecord, 'quote_id' | 'session_id'>>,
+    Partial<Pick<AdminNotificationRecord, 'quote_id' | 'intake_id' | 'session_id'>>,
 ): Promise<AdminNotificationRecord> {
   const row = await db.queryOne<AdminNotificationRecord>(
-    `INSERT INTO admin_notifications (kind, quote_id, session_id, title, body)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO admin_notifications (kind, quote_id, intake_id, session_id, title, body)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
     [
       input.kind,
       input.quote_id ?? null,
+      input.intake_id ?? null,
       input.session_id ?? null,
       input.title,
       input.body,
@@ -77,8 +80,22 @@ export async function markAllNotificationsRead(db: DBExecutor): Promise<number> 
   return res.rowCount;
 }
 
-/** Clears approval alerts for a quote once an admin has decided on it. */
-export async function markQuoteNotificationsRead(db: DBExecutor, quoteId: number): Promise<number> {
+/** Clears approval and lead alerts for a quote's session once an admin has decided on it. */
+export async function markQuoteNotificationsRead(
+  db: DBExecutor,
+  quoteId: number,
+  sessionId?: string | null,
+): Promise<number> {
+  if (sessionId) {
+    const res = await db.query(
+      `UPDATE admin_notifications
+       SET read_at = ${UTC_NOW_SQL}
+       WHERE read_at IS NULL
+         AND (quote_id = $1 OR (session_id = $2 AND kind IN ('lead_started', 'lead_qualified')))`,
+      [quoteId, sessionId],
+    );
+    return res.rowCount;
+  }
   const res = await db.query(
     `UPDATE admin_notifications SET read_at = ${UTC_NOW_SQL} WHERE quote_id = $1 AND read_at IS NULL`,
     [quoteId],

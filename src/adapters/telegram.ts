@@ -121,20 +121,34 @@ export class TelegramAdapter implements ChannelAdapter {
 
   /** Sends an operational alert to the configured admin chats. */
   async notifyAdmins(text: string): Promise<number> {
-    if (!this.token || this.adminChatIds.length === 0) return 0;
+    const report = await this.notifyChatIds(this.adminChatIds, text);
+    return report.sent;
+  }
+
+  /** Sends an operational alert to specific Telegram chat IDs and returns a delivery report. */
+  async notifyChatIds(
+    chatIds: number[],
+    text: string,
+  ): Promise<{ sent: number; failed: number; live: boolean; errors: string[] }> {
+    const recipients = [...new Set(chatIds.filter((chatId) => Number.isSafeInteger(chatId) && chatId !== 0))];
+    if (!this.token || recipients.length === 0) {
+      return { sent: 0, failed: 0, live: Boolean(this.token), errors: [] };
+    }
     const body = text.slice(0, MAX_TELEGRAM_TEXT);
     let sent = 0;
-    for (const chatId of this.adminChatIds) {
-      // Re-validate at send time so a malformed id can never become a recipient.
-      if (!Number.isSafeInteger(chatId) || chatId === 0) continue;
+    let failed = 0;
+    const errors: string[] = [];
+    for (const chatId of recipients) {
       try {
         await this.call('sendMessage', { chat_id: chatId, text: body });
         sent += 1;
       } catch (error) {
+        failed += 1;
+        errors.push(`${chatId}: ${this.redact(error instanceof Error ? error.message : String(error))}`);
         this.onError(error, 'failed to send an admin alert');
       }
     }
-    return sent;
+    return { sent, failed, live: true, errors };
   }
 
   normalize(payload: unknown): InboundMessage | null {

@@ -55,6 +55,11 @@ const envSchema = z.object({
   WHATSAPP_ACCESS_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+  WHATSAPP_ADMIN_NUMBERS: z.string().optional(),
+  DASHBOARD_PUBLIC_URL: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().url().optional(),
+  ),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

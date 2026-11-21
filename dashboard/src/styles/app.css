@@ -492,9 +492,161 @@ button, input, select, textarea {
   line-height: 1.4;
 }
 
+.notif-controls-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+}
+
+.notif-toggle-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.notif-toggle-pill:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.notif-toggle-pill.active {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-surface));
+}
+
+.notif-toggle-pill:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Live Toast Stack */
+.notif-toast-stack {
+  position: fixed;
+  top: 78px;
+  right: 20px;
+  z-index: 1050;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(380px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.notif-toast {
+  pointer-events: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-left: 4px solid var(--accent-primary);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: notif-slide-in 0.2s ease-out;
+}
+
+@keyframes notif-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.notif-toast-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.notif-toast-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.notif-toast-body {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.notif-toast-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* Notification Settings Modal Helpers */
+.notif-check-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+}
+
+.notif-check-item {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.window-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.window-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  font-size: 0.78rem;
+}
+
+/* Highlighted Lead Row after clicking notification */
+.lead-row-highlight td {
+  background: color-mix(in srgb, var(--accent-primary) 14%, var(--bg-surface)) !important;
+  transition: background 0.35s ease;
+}
+
 @media (max-width: 640px) {
   .notif-popover {
     right: -48px;
+  }
+  .notif-toast-stack {
+    right: 12px;
+    top: 72px;
   }
 }
 

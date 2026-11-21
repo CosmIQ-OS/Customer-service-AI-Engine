@@ -6,6 +6,7 @@ import type { ConversationMode, ConversationRecord } from '../../db/repositories
 import * as logsRepo from '../../db/repositories/logs.js';
 import * as messagesRepo from '../../db/repositories/messages.js';
 import * as notificationsRepo from '../../db/repositories/notifications.js';
+import type { AdminNotificationRecord } from '../../db/repositories/notifications.js';
 
 export const DEFAULT_IDLE_MINUTES = 60;
 
@@ -15,6 +16,7 @@ export interface ConversationServiceOptions {
   /** Minutes a human-owned conversation may stay idle before it is closed. */
   idleMinutes?: number;
   now?: () => Date;
+  onNotification?: (notification: AdminNotificationRecord) => void | Promise<void>;
 }
 
 export interface ConversationSummary {
@@ -122,12 +124,13 @@ export class ConversationService {
     });
 
     if (conversation.mode !== 'ai') {
-      await notificationsRepo.createNotification(this.options.db, {
+      const notification = await notificationsRepo.createNotification(this.options.db, {
         kind: 'conversation_message',
         session_id: session.id,
         title: `New customer message on ${session.channel}`,
         body: `${session.external_user_id}: ${text.slice(0, 280)}`,
       });
+      await this.options.onNotification?.(notification);
       await logsRepo.createLog(this.options.db, {
         channel: session.channel,
         external_user_id: session.external_user_id,

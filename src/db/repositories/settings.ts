@@ -10,6 +10,67 @@ export const QUOTE_MARGIN_KEY = 'quote_margin_percent';
 export const COMPANY_SIZE_MULTIPLIERS_KEY = 'company_size_multipliers';
 export const DEFAULT_TERMS_KEY = 'default_terms_and_conditions';
 export const PROPOSAL_SETTINGS_KEY = 'proposal_template_settings';
+export const LEAD_NOTIFICATION_SETTINGS_KEY = 'lead_notification_settings';
+
+export interface LeadNotificationSettings {
+  enabled: boolean;
+  notifyOnLeadStarted: boolean;
+  notifyOnLeadQualified: boolean;
+  notifyOnWebsiteLead: boolean;
+  whatsappEnabled: boolean;
+  whatsappRecipients: string[];
+  telegramEnabled: boolean;
+  telegramChatIds: number[];
+  /** ISO timestamp of the latest /ping (or inbound message) from each admin WhatsApp number. */
+  whatsappLastPingAt: Record<string, string>;
+}
+
+export const DEFAULT_LEAD_NOTIFICATION_SETTINGS: LeadNotificationSettings = {
+  enabled: true,
+  notifyOnLeadStarted: true,
+  notifyOnLeadQualified: true,
+  notifyOnWebsiteLead: true,
+  whatsappEnabled: true,
+  whatsappRecipients: [],
+  telegramEnabled: true,
+  telegramChatIds: [],
+  whatsappLastPingAt: {},
+};
+
+/** Normalizes WhatsApp phone numbers into digits-only E.164 format (7–15 digits). */
+export function normalizeWhatsappNumbers(input: string[] | string | undefined): string[] {
+  const parts = Array.isArray(input)
+    ? input
+    : typeof input === 'string'
+      ? input.split(/[\s,;]+/)
+      : [];
+  const seen = new Set<string>();
+  for (const part of parts) {
+    const digits = String(part).replace(/[^\d]/g, '');
+    if (digits.length >= 7 && digits.length <= 15) {
+      seen.add(digits);
+    }
+  }
+  return [...seen];
+}
+
+/** Normalizes Telegram chat IDs into safe non-zero integers. */
+export function normalizeTelegramChatIds(input: Array<number | string> | string | undefined): number[] {
+  const parts = Array.isArray(input)
+    ? input
+    : typeof input === 'string'
+      ? input.split(/[\s,;]+/)
+      : [];
+  const seen = new Set<number>();
+  for (const part of parts) {
+    const trimmed = String(part).trim();
+    if (!/^-?\d+$/.test(trimmed)) continue;
+    const value = Number(trimmed);
+    if (!Number.isSafeInteger(value) || value === 0) continue;
+    seen.add(value);
+  }
+  return [...seen];
+}
 
 export interface ProposalTemplateSettings {
   ourCompanyName: string;
@@ -305,5 +366,117 @@ export async function setProposalTemplateSettings(
       patch.defaultDataPrivacy !== undefined ? patch.defaultDataPrivacy : current.defaultDataPrivacy,
   };
   await setSetting(db, PROPOSAL_SETTINGS_KEY, JSON.stringify(next), updatedBy);
+  return next;
+}
+
+export async function getLeadNotificationSettings(
+  db: DBExecutor,
+  envDefaults?: { whatsappAdminNumbers?: string; telegramAdminChatIds?: string },
+): Promise<LeadNotificationSettings> {
+  const defaultWa = normalizeWhatsappNumbers(envDefaults?.whatsappAdminNumbers);
+  const defaultTg = normalizeTelegramChatIds(envDefaults?.telegramAdminChatIds);
+  const raw = await getSetting(db, LEAD_NOTIFICATION_SETTINGS_KEY);
+  if (raw === undefined) {
+    return {
+      ...DEFAULT_LEAD_NOTIFICATION_SETTINGS,
+      whatsappRecipients: defaultWa,
+      telegramChatIds: defaultTg,
+      whatsappLastPingAt: {},
+    };
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<LeadNotificationSettings> | null;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {
+        ...DEFAULT_LEAD_NOTIFICATION_SETTINGS,
+        whatsappRecipients: defaultWa,
+        telegramChatIds: defaultTg,
+        whatsappLastPingAt: {},
+      };
+    }
+    const rawPingMap =
+      parsed.whatsappLastPingAt && typeof parsed.whatsappLastPingAt === 'object' && !Array.isArray(parsed.whatsappLastPingAt)
+        ? parsed.whatsappLastPingAt
+        : {};
+    const pingMap: Record<string, string> = {};
+    for (const [k, v] of Object.entries(rawPingMap)) {
+      const normalizedKey = normalizeWhatsappNumbers([k])[0];
+      if (normalizedKey && typeof v === 'string' && v.trim()) {
+        pingMap[normalizedKey] = v.trim();
+      }
+    }
+    return {
+      enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : true,
+      notifyOnLeadStarted: typeof parsed.notifyOnLeadStarted === 'boolean' ? parsed.notifyOnLeadStarted : true,
+      notifyOnLeadQualified: typeof parsed.notifyOnLeadQualified === 'boolean' ? parsed.notifyOnLeadQualified : true,
+      notifyOnWebsiteLead: typeof parsed.notifyOnWebsiteLead === 'boolean' ? parsed.notifyOnWebsiteLead : true,
+      whatsappEnabled: typeof parsed.whatsappEnabled === 'boolean' ? parsed.whatsappEnabled : true,
+      whatsappRecipients: Array.isArray(parsed.whatsappRecipients)
+        ? normalizeWhatsappNumbers(parsed.whatsappRecipients)
+        : defaultWa,
+      telegramEnabled: typeof parsed.telegramEnabled === 'boolean' ? parsed.telegramEnabled : true,
+      telegramChatIds: Array.isArray(parsed.telegramChatIds)
+        ? normalizeTelegramChatIds(parsed.telegramChatIds)
+        : defaultTg,
+      whatsappLastPingAt: pingMap,
+    };
+  } catch {
+    return {
+      ...DEFAULT_LEAD_NOTIFICATION_SETTINGS,
+      whatsappRecipients: defaultWa,
+      telegramChatIds: defaultTg,
+      whatsappLastPingAt: {},
+    };
+  }
+}
+
+export async function setLeadNotificationSettings(
+  db: DBExecutor,
+  patch: Partial<Omit<LeadNotificationSettings, 'whatsappLastPingAt'>>,
+  updatedBy: number | null,
+  envDefaults?: { whatsappAdminNumbers?: string; telegramAdminChatIds?: string },
+): Promise<LeadNotificationSettings> {
+  const current = await getLeadNotificationSettings(db, envDefaults);
+  const next: LeadNotificationSettings = {
+    enabled: patch.enabled !== undefined ? Boolean(patch.enabled) : current.enabled,
+    notifyOnLeadStarted:
+      patch.notifyOnLeadStarted !== undefined ? Boolean(patch.notifyOnLeadStarted) : current.notifyOnLeadStarted,
+    notifyOnLeadQualified:
+      patch.notifyOnLeadQualified !== undefined ? Boolean(patch.notifyOnLeadQualified) : current.notifyOnLeadQualified,
+    notifyOnWebsiteLead:
+      patch.notifyOnWebsiteLead !== undefined ? Boolean(patch.notifyOnWebsiteLead) : current.notifyOnWebsiteLead,
+    whatsappEnabled: patch.whatsappEnabled !== undefined ? Boolean(patch.whatsappEnabled) : current.whatsappEnabled,
+    whatsappRecipients:
+      patch.whatsappRecipients !== undefined
+        ? normalizeWhatsappNumbers(patch.whatsappRecipients)
+        : current.whatsappRecipients,
+    telegramEnabled: patch.telegramEnabled !== undefined ? Boolean(patch.telegramEnabled) : current.telegramEnabled,
+    telegramChatIds:
+      patch.telegramChatIds !== undefined
+        ? normalizeTelegramChatIds(patch.telegramChatIds)
+        : current.telegramChatIds,
+    whatsappLastPingAt: current.whatsappLastPingAt,
+  };
+  await setSetting(db, LEAD_NOTIFICATION_SETTINGS_KEY, JSON.stringify(next), updatedBy);
+  return next;
+}
+
+export async function recordAdminWhatsappPing(
+  db: DBExecutor,
+  phone: string,
+  isoTimestamp: string,
+  envDefaults?: { whatsappAdminNumbers?: string; telegramAdminChatIds?: string },
+): Promise<LeadNotificationSettings> {
+  const normalized = normalizeWhatsappNumbers([phone])[0];
+  const current = await getLeadNotificationSettings(db, envDefaults);
+  if (!normalized) return current;
+  const next: LeadNotificationSettings = {
+    ...current,
+    whatsappLastPingAt: {
+      ...current.whatsappLastPingAt,
+      [normalized]: isoTimestamp,
+    },
+  };
+  await setSetting(db, LEAD_NOTIFICATION_SETTINGS_KEY, JSON.stringify(next), null);
   return next;
 }

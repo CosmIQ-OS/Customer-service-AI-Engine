@@ -2,12 +2,35 @@ import type { ChannelAdapter, InboundHandler } from '../engine/channels/adapter.
 import type { EngineResponse, InboundMessage } from '../engine/types.js';
 
 const GRAPH_VERSION = 'v21.0';
+const MAX_WHATSAPP_TEXT = 4096;
 
 export interface WhatsAppAdapterOptions {
   accessToken?: string;
   /** Cloud API phone number id that owns the business account. */
   phoneNumberId?: string;
+  /** Default admin WhatsApp numbers in digits-only E.164 format (e.g. "919876543210"). */
+  adminNumbers?: string[];
   onError?: (error: unknown, context: string) => void;
+}
+
+export interface WhatsAppAlertDeliveryReport {
+  sent: number;
+  failed: number;
+  live: boolean;
+  errors: string[];
+}
+
+/** Parses comma/whitespace-separated phone numbers into digits-only E.164 strings (7–15 digits). */
+export function parseAdminPhoneNumbers(raw: string | undefined): string[] {
+  if (!raw) return [];
+  const seen = new Set<string>();
+  for (const part of raw.split(/[\s,;]+/)) {
+    const digits = part.replace(/[^\d]/g, '');
+    if (digits.length >= 7 && digits.length <= 15) {
+      seen.add(digits);
+    }
+  }
+  return [...seen];
 }
 
 /**
@@ -21,12 +44,18 @@ export class WhatsAppAdapter implements ChannelAdapter {
   readonly channel = 'whatsapp';
   private accessToken: string | undefined;
   private phoneNumberId: string | undefined;
+  private adminNumbers: string[];
   private onError: (error: unknown, context: string) => void;
   private handler: InboundHandler | undefined;
 
   constructor(opts: WhatsAppAdapterOptions = {}) {
     this.accessToken = opts.accessToken ?? process.env.WHATSAPP_ACCESS_TOKEN;
     this.phoneNumberId = opts.phoneNumberId ?? process.env.WHATSAPP_PHONE_NUMBER_ID;
+    this.adminNumbers = (
+      opts.adminNumbers ?? parseAdminPhoneNumbers(process.env.WHATSAPP_ADMIN_NUMBERS)
+    )
+      .map((num) => num.replace(/[^\d]/g, ''))
+      .filter((num) => num.length >= 7 && num.length <= 15);
     this.onError = opts.onError ?? ((error, context) => console.error('[whatsapp] %s', context, error));
   }
 
@@ -53,6 +82,40 @@ export class WhatsAppAdapter implements ChannelAdapter {
       console.log(`[whatsapp->${externalUserId}] ${text}`);
       return;
     }
+    await this.postText(externalUserId, text);
+  }
+
+  /** Sends a free-form text alert to default configured admin numbers (free inside the 24h Meta service window). */
+  async notifyAdmins(text: string): Promise<number> {
+    const report = await this.notifyAdminNumbers(this.adminNumbers, text);
+    return report.sent;
+  }
+
+  /** Sends a free-form text alert to specific admin WhatsApp numbers and returns a per-call delivery report. */
+  async notifyAdminNumbers(numbers: string[], text: string): Promise<WhatsAppAlertDeliveryReport> {
+    const recipients = [...new Set(numbers.map((n) => n.replace(/[^\d]/g, '')).filter((n) => n.length >= 7 && n.length <= 15))];
+    if (!this.isLive || recipients.length === 0) {
+      return { sent: 0, failed: 0, live: this.isLive, errors: [] };
+    }
+    const body = text.slice(0, MAX_WHATSAPP_TEXT);
+    let sent = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    for (const phone of recipients) {
+      try {
+        await this.postText(phone, body);
+        sent += 1;
+      } catch (error) {
+        failed += 1;
+        const msg = error instanceof Error ? error.message : String(error);
+        errors.push(`${phone}: ${this.redact(msg)}`);
+        this.onError(error, 'failed to send an admin alert');
+      }
+    }
+    return { sent, failed, live: true, errors };
+  }
+
+  private async postText(to: string, text: string): Promise<void> {
     let res: Response;
     try {
       res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${this.phoneNumberId}/messages`, {
@@ -63,9 +126,9 @@ export class WhatsAppAdapter implements ChannelAdapter {
         },
         body: JSON.stringify({
           messaging_product: 'whatsapp',
-          to: externalUserId,
+          to,
           type: 'text',
-          text: { body: text },
+          text: { body: text.slice(0, MAX_WHATSAPP_TEXT) },
         }),
       });
     } catch (error) {

@@ -326,14 +326,15 @@ describe('quote API', () => {
     assert.ok(body.pending[0].expires_at);
     assert.deepEqual(
       { pending: body.counts.pending, unread: body.counts.unread, windowHours: body.counts.windowHours },
-      { pending: 1, unread: 1, windowHours: 6 },
+      { pending: 1, unread: 2, windowHours: 6 },
     );
     assert.equal(body.notifications[0].kind, 'quote_approval');
     assert.equal(body.notifications[0].quote_id, quoteId);
     assert.equal(body.notifications[0].read_at, null);
+    assert.equal(body.notifications[1].kind, 'lead_qualified');
 
     const readAll = await fetch(`${base}/api/notifications/read-all`, { method: 'POST', headers: { cookie } });
-    assert.equal((await readAll.json() as { updated: number }).updated, 1);
+    assert.equal((await readAll.json() as { updated: number }).updated, 2);
     const after = await fetch(`${base}/api/approvals`, { headers: { cookie } });
     assert.equal((await after.json() as { counts: { unread: number } }).counts.unread, 0);
   });

@@ -206,28 +206,6 @@ export function createQuoteRouter(engine: SupportEngine): Router {
     res.json({ pending, counts, notifications });
   }));
 
-  router.get('/notifications', asyncHandler(async (req, res) => {
-    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
-    const unreadOnly = req.query.unread === '1' || req.query.unread === 'true';
-    const [notifications, summary] = await Promise.all([
-      engine.listNotifications({ limit, unreadOnly }),
-      engine.approvalSummary(),
-    ]);
-    res.json({ notifications, unread: summary.unread });
-  }));
-
-  router.post('/notifications/read-all', asyncHandler(async (_req, res) => {
-    res.json({ updated: await engine.markAllNotificationsRead() });
-  }));
-
-  router.post('/notifications/:id/read', asyncHandler(async (req, res) => {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid notification id' });
-    const notification = await engine.markNotificationRead(id);
-    if (!notification) return res.status(404).json({ error: 'Notification not found' });
-    res.json(notification);
-  }));
-
   router.post('/quotes/build', asyncHandler(async (req, res) => {
     const parsed = buildSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Send a sessionId.' });

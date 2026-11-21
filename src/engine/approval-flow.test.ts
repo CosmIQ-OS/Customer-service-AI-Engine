@@ -139,7 +139,7 @@ describe('quote approval flow', () => {
     assert.equal(pending.quote.expires_at, '2026-11-11 16:00:00');
 
     assert.deepEqual(await engine.processDueApprovals(), { realerted: 0 });
-    assert.equal((await engine.approvalSummary()).unread, 1);
+    assert.equal((await engine.approvalSummary()).unread, 2);
 
     now = new Date('2026-11-11T16:00:05.000Z');
     assert.deepEqual(await engine.processDueApprovals(), { realerted: 1 });
@@ -148,7 +148,7 @@ describe('quote approval flow', () => {
     assert.equal(after.quote.status, 'pending_approval');
     assert.equal(after.quote.alert_count, 1);
     assert.equal(after.quote.next_alert_at, '2026-11-11 22:00:05');
-    assert.equal((await engine.approvalSummary()).unread, 2);
+    assert.equal((await engine.approvalSummary()).unread, 3);
 
     // Customers must not be interrupted with repeated "still with our team" follow-ups.
     const holding = (await engine.listMessages(sessionId)).filter(

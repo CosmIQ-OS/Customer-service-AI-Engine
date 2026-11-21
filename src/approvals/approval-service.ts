@@ -13,6 +13,7 @@ export interface ApprovalServiceConfig {
   /** Hours before the first admin reminder; the same interval repeats until a decision. */
   windowHours?: number;
   now?: () => Date;
+  onNotification?: (notification: AdminNotificationRecord) => void | Promise<void>;
 }
 
 /** UTC SQL timestamp (`YYYY-MM-DD HH:MM:SS`), matching database defaults. */
@@ -74,13 +75,14 @@ export class ApprovalService {
       nextAlertAt: expiresAt,
     });
 
-    await notificationsRepo.createNotification(this.db, {
+    const notification = await notificationsRepo.createNotification(this.db, {
       kind: 'quote_approval',
       quote_id: updated.id,
       session_id: updated.session_id,
       title: `Quote ${updated.quote_number} needs approval`,
       body: `${updated.service_name} · ${formatInr(updated.total_paise)} · customer ${updated.external_user_id}. Reminders repeat every ${this.windowHours} hours until a decision.`,
     });
+    await this.config.onNotification?.(notification);
     await logsRepo.createLog(this.db, {
       channel: updated.channel,
       external_user_id: updated.external_user_id,
@@ -116,6 +118,7 @@ export class ApprovalService {
       title: `Reminder: quote ${updated.quote_number} still needs approval`,
       body: `${updated.service_name} · ${formatInr(updated.total_paise)} · customer ${updated.external_user_id}. Reminder ${updated.alert_count}; next one in ${this.windowHours} hours.`,
     });
+    await this.config.onNotification?.(notification);
     await logsRepo.createLog(this.db, {
       channel: updated.channel,
       external_user_id: updated.external_user_id,
@@ -140,7 +143,7 @@ export class ApprovalService {
       note,
       decidedAt: toSqlTimestamp(this.now()),
     });
-    await notificationsRepo.markQuoteNotificationsRead(this.db, quoteId);
+    await notificationsRepo.markQuoteNotificationsRead(this.db, quoteId, updated.session_id);
     await logsRepo.createLog(this.db, {
       channel: updated.channel,
       external_user_id: updated.external_user_id,

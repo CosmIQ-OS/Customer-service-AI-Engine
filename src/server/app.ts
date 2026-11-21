@@ -12,6 +12,7 @@ import { createRateLimiter } from './rate-limiter.js';
 import { createPricingRouter } from './pricing-routes.js';
 import { createQuoteRouter } from './quote-routes.js';
 import { createConversationRouter } from './conversation-routes.js';
+import { createNotificationRouter } from './notification-routes.js';
 
 export interface AppOptions {
   auth: AdminAuth;
@@ -187,6 +188,7 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
 
   app.use('/api', requireAdmin(options.auth));
   app.use('/api', createPricingRouter(engine.db));
+  app.use('/api', createNotificationRouter(engine));
   app.use('/api', createQuoteRouter(engine));
   app.use('/api', createConversationRouter(engine));
 
