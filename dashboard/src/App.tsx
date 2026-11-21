@@ -80,6 +80,18 @@ function Pill({
   return <span className={`pill ${tone || ''}`}>{children}</span>;
 }
 
+/** Official CosmIQ C·Q·I isometric cube monomark (theme-adaptive, no background). */
+function CosmiqMark() {
+  return (
+    <svg viewBox="26 16 148 166" aria-hidden="true" focusable="false">
+      <polygon className="cq-q" points="34.53,58.00 100.00,20.20 142.56,44.77 127.89,53.24 100.00,37.13 63.86,58.00 100.00,78.87 127.89,62.76 142.56,71.23 100.00,95.80" />
+      <polygon className="cq-tail" points="103.93,58.00 117.02,50.44 152.38,50.44 165.48,58.00 152.38,65.56 117.02,65.56" />
+      <polygon className="cq-c" points="96.36,102.10 30.89,64.30 30.89,139.90 96.36,177.70 96.36,154.26 81.70,145.80 81.70,152.30 45.55,131.43 45.55,89.70 81.70,110.57 81.70,117.07 96.36,125.54" />
+      <polygon className="cq-i" points="103.64,102.10 169.11,64.30 169.11,81.23 143.71,95.90 143.71,137.63 169.11,122.97 169.11,139.90 103.64,177.70 103.64,160.77 129.04,146.10 129.04,104.37 103.64,119.03" />
+    </svg>
+  );
+}
+
 function getInitialTheme(): ThemeMode {
   try {
     return localStorage.getItem('tandem-theme') === 'dark' ? 'dark' : 'light';
@@ -319,10 +331,12 @@ export function App() {
       {/* Editorial Command Header */}
       <header className="navbar">
         <div className="brand">
-          <div className="brand-mark">CQ</div>
+          <div className="brand-mark" role="img" aria-label="CosmIQ">
+            <CosmiqMark />
+          </div>
           <div className="brand-text">
             <h1>
-              <span>COSMIQ OS // SUPPORT &amp; QUOTATION WORKBENCH</span>
+              <span>COSMIQ OS</span>
             </h1>
             <p>Deterministic quotations, WhatsApp enquiry routing &amp; human handover</p>
           </div>
@@ -571,20 +585,66 @@ export function App() {
               {completeIntakesCount} COLLECTED+ / {intakes.length} TOTAL
             </Pill>
           </div>
-          <p className="sub">
-            Structured company, team size, tooling stack, and requested service records captured conversationally or via website forms.
-          </p>
-
-          <div className="search-bar" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="lead-toolbar">
             <input
               className="search-input"
-              placeholder="Filter by company, service, tools, or phone ID…"
+              placeholder="Search company, service, tools, phone…"
+              aria-label="Search leads"
               value={intakeSearch}
               onChange={(e) => setIntakeSearch(e.target.value)}
             />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+
+            <label className={`lead-select ${intakeDateFilter !== 'all' ? 'active' : ''}`}>
+              <span className="lead-select-label">TIME</span>
+              <select
+                aria-label="Filter leads by time"
+                value={intakeDateFilter}
+                onChange={(e) => setIntakeDateFilter(e.target.value as IntakeDateFilter)}
+              >
+                <option value="all">All time ({intakes.length})</option>
+                <option value="today">Today ({todaysIntakesCount})</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="7d">Last 7 days</option>
+                <option value="month">This month</option>
+              </select>
+            </label>
+
+            <label className={`lead-select ${intakeStatusFilter !== 'all' ? 'active' : ''}`}>
+              <span className="lead-select-label">STAGE</span>
+              <select
+                aria-label="Filter leads by stage"
+                value={intakeStatusFilter}
+                onChange={(e) => setIntakeStatusFilter(e.target.value as IntakeStatusFilter)}
+              >
+                <option value="all">All stages ({intakes.length})</option>
+                {LEAD_STATUS_OPTIONS.map((opt) => {
+                  const count = intakes.filter((i) => normalizeLeadStatus(i.status) === opt.value).length;
+                  return (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label.charAt(0) + opt.label.slice(1).toLowerCase()} ({count})
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+
+            <label className={`lead-select ${intakeChannelFilter !== 'all' ? 'active' : ''}`}>
+              <span className="lead-select-label">CHANNEL</span>
+              <select
+                aria-label="Filter leads by channel"
+                value={intakeChannelFilter}
+                onChange={(e) => setIntakeChannelFilter(e.target.value as 'all' | 'website' | 'whatsapp' | 'telegram')}
+              >
+                <option value="all">All channels ({intakes.length})</option>
+                <option value="website">Website ({websiteIntakesCount})</option>
+                <option value="whatsapp">WhatsApp ({whatsappIntakesCount})</option>
+                <option value="telegram">Telegram ({telegramIntakesCount})</option>
+              </select>
+            </label>
+
+            <div className="lead-toolbar-meta">
               <span className="mono muted" style={{ fontSize: '11px' }}>
-                SHOWING {filteredIntakes.length} OF {intakes.length} LEADS
+                {filteredIntakes.length} / {intakes.length} LEADS
               </span>
               {hasActiveIntakeFilters && (
                 <button
@@ -597,94 +657,9 @@ export function App() {
                     setIntakeStatusFilter('all');
                   }}
                 >
-                  CLEAR FILTERS
+                  ✕ CLEAR
                 </button>
               )}
-            </div>
-          </div>
-
-          <div className="lead-filter-bar">
-            <div className="lead-filter-group">
-              <span className="lead-filter-label">TIME //</span>
-              {([
-                { value: 'all', label: `ALL TIME (${intakes.length})` },
-                { value: 'today', label: `📅 TODAY'S LEADS (${todaysIntakesCount})` },
-                { value: 'yesterday', label: 'YESTERDAY' },
-                { value: '7d', label: 'LAST 7 DAYS' },
-                { value: 'month', label: 'THIS MONTH' },
-              ] as const).map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  className={`btn ${intakeDateFilter === item.value ? 'primary' : 'secondary'}`}
-                  style={{ minHeight: 28, fontSize: '11px', padding: '0 10px' }}
-                  onClick={() => setIntakeDateFilter(item.value)}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="lead-filter-group">
-              <span className="lead-filter-label">STAGE //</span>
-              <button
-                type="button"
-                className={`btn ${intakeStatusFilter === 'all' ? 'primary' : 'secondary'}`}
-                style={{ minHeight: 28, fontSize: '11px', padding: '0 10px' }}
-                onClick={() => setIntakeStatusFilter('all')}
-              >
-                ALL STATUSES
-              </button>
-              {LEAD_STATUS_OPTIONS.map((opt) => {
-                const count = intakes.filter((i) => normalizeLeadStatus(i.status) === opt.value).length;
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    className={`btn ${intakeStatusFilter === opt.value ? 'primary' : 'secondary'}`}
-                    style={{ minHeight: 28, fontSize: '11px', padding: '0 10px' }}
-                    onClick={() => setIntakeStatusFilter(opt.value)}
-                  >
-                    {opt.label} ({count})
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="lead-filter-group">
-              <span className="lead-filter-label">CHANNEL //</span>
-              <button
-                type="button"
-                className={`btn ${intakeChannelFilter === 'all' ? 'primary' : 'secondary'}`}
-                style={{ minHeight: 28, fontSize: '11px', padding: '0 10px' }}
-                onClick={() => setIntakeChannelFilter('all')}
-              >
-                ALL CHANNELS ({intakes.length})
-              </button>
-              <button
-                type="button"
-                className={`btn ${intakeChannelFilter === 'website' ? 'primary' : 'secondary'}`}
-                style={{ minHeight: 28, fontSize: '11px', padding: '0 10px', background: intakeChannelFilter === 'website' ? '#2563eb' : undefined, borderColor: '#2563eb', color: intakeChannelFilter === 'website' ? '#fff' : undefined }}
-                onClick={() => setIntakeChannelFilter('website')}
-              >
-                🌐 WEBSITE LEADS ({websiteIntakesCount})
-              </button>
-              <button
-                type="button"
-                className={`btn ${intakeChannelFilter === 'whatsapp' ? 'primary' : 'secondary'}`}
-                style={{ minHeight: 28, fontSize: '11px', padding: '0 10px' }}
-                onClick={() => setIntakeChannelFilter('whatsapp')}
-              >
-                WHATSAPP ({whatsappIntakesCount})
-              </button>
-              <button
-                type="button"
-                className={`btn ${intakeChannelFilter === 'telegram' ? 'primary' : 'secondary'}`}
-                style={{ minHeight: 28, fontSize: '11px', padding: '0 10px' }}
-                onClick={() => setIntakeChannelFilter('telegram')}
-              >
-                TELEGRAM ({telegramIntakesCount})
-              </button>
             </div>
           </div>
 
