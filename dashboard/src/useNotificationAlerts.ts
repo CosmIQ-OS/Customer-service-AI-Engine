@@ -85,6 +85,9 @@ export function notificationTargetFor(item: AdminNotification): NotificationTarg
   if (item.kind === 'conversation_message') {
     return { tab: 'inbox', sessionId: item.session_id };
   }
+  if (item.kind === 'lead_started' && item.intake_id === null && item.session_id) {
+    return { tab: 'inbox', sessionId: item.session_id };
+  }
   if (item.kind === 'lead_started' || item.kind === 'lead_qualified' || item.kind === 'website_lead') {
     return { tab: 'intakes', intakeId: item.intake_id, sessionId: item.session_id };
   }

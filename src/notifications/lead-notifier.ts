@@ -167,6 +167,59 @@ export class LeadNotifier {
     this.options.hub.publish({ type: 'unread', unread });
   }
 
+  /**
+   * Fires immediately when a new customer enters on WhatsApp/Telegram (even on their very first "Hi" message)
+   * before any intake fields are collected.
+   */
+  async notifyCustomerEntered(input: {
+    sessionId: string;
+    channel: string;
+    externalUserId: string;
+    displayName?: string;
+    text: string;
+  }): Promise<AdminNotificationRecord | null> {
+    const settings = await this.getSettings();
+    if (!settings.enabled || !settings.notifyOnLeadStarted) return null;
+
+    const alreadyNotified = await notificationsRepo.hasSessionNotificationOfKind(
+      this.options.db,
+      input.sessionId,
+      'lead_started',
+    );
+    if (alreadyNotified) return null;
+
+    const channelLabel = formatChannelLabel(input.channel);
+    const who = input.displayName?.trim()
+      ? `${input.displayName.trim()} (${input.externalUserId})`
+      : input.externalUserId;
+    const snippet = input.text.trim().replace(/\s+/g, ' ').slice(0, 180);
+    const title = `New ${channelLabel} Lead: ${input.displayName?.trim() || input.externalUserId}`;
+    const body = `Customer entered on ${channelLabel} (${who}): "${snippet}"`;
+
+    const notification = await notificationsRepo.createNotification(this.options.db, {
+      kind: 'lead_started',
+      intake_id: null,
+      session_id: input.sessionId,
+      title,
+      body,
+    });
+    await this.broadcastNotification(notification);
+
+    const externalText = [
+      `🔔 New ${channelLabel} Customer Entered — CosmIQ OS`,
+      input.displayName?.trim() ? `Customer: ${input.displayName.trim()}` : '',
+      `Phone / ID: ${input.externalUserId}`,
+      `First Message: "${snippet}"`,
+      'Stage: Customer just entered live chat',
+      this.options.dashboardPublicUrl ? `Open Dashboard: ${this.options.dashboardPublicUrl}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    void this.dispatchExternal(settings, externalText, input.sessionId);
+    return notification;
+  }
+
   /** Creates a dashboard notification for a new/qualified WhatsApp or Telegram lead and dispatches external alerts. */
   async notifyIntakeLead(
     kind: 'lead_started' | 'lead_qualified',
@@ -176,6 +229,15 @@ export class LeadNotifier {
     if (!settings.enabled) return null;
     if (kind === 'lead_started' && !settings.notifyOnLeadStarted) return null;
     if (kind === 'lead_qualified' && !settings.notifyOnLeadQualified) return null;
+
+    if (kind === 'lead_started') {
+      const alreadyNotified = await notificationsRepo.hasSessionNotificationOfKind(
+        this.options.db,
+        intake.session_id,
+        'lead_started',
+      );
+      if (alreadyNotified) return null;
+    }
 
     const channelLabel = formatChannelLabel(intake.channel);
     const leadLabel = intake.company_name || intake.contact_person || intake.external_user_id || `Lead #${intake.id}`;

@@ -67,6 +67,57 @@ describe('lead notifications (dashboard + free WhatsApp admin alerts)', () => {
     return { db, engine, sentMessages, events, unsubscribe };
   }
 
+  it('notifies immediately when a new customer enters with a greeting before sharing any intake fields', async () => {
+    const { engine, sentMessages, events, unsubscribe } = await setup({ whatsappLive: true });
+    try {
+      // Turn 1: Customer just enters and says "Hi, what services do you offer?" (no intake saved yet)
+      await engine.handleMessage({
+        channel: 'whatsapp',
+        externalUserId: '916666555444',
+        text: 'Hi, what services do you offer?',
+        metadata: { name: 'Kiran Nair' },
+      });
+      await new Promise((r) => setTimeout(r, 30));
+
+      let notifs = await engine.listNotifications();
+      const started = notifs.filter((n) => n.kind === 'lead_started');
+      assert.equal(started.length, 1);
+      assert.match(started[0].title, /Kiran Nair/);
+      assert.equal(started[0].intake_id, null);
+      assert.ok(started[0].session_id);
+      assert.ok(events.some((e) => e.type === 'notification' && e.notification.kind === 'lead_started'));
+      assert.equal(sentMessages.length, 1);
+      assert.match(sentMessages[0].body, /New WhatsApp Customer Entered/);
+      assert.match(sentMessages[0].body, /Kiran Nair/);
+
+      // Turn 2: Customer gives partial intake -> should NOT duplicate lead_started
+      await engine.handleMessage({
+        channel: 'whatsapp',
+        externalUserId: '916666555444',
+        text: 'Company: Kiran Digital; Service: WhatsApp Agent Services',
+      });
+      await new Promise((r) => setTimeout(r, 30));
+
+      notifs = await engine.listNotifications();
+      assert.equal(notifs.filter((n) => n.kind === 'lead_started').length, 1);
+      assert.equal(sentMessages.length, 1);
+
+      // Turn 3: Customer completes intake -> SHOULD fire lead_qualified
+      await engine.handleMessage({
+        channel: 'whatsapp',
+        externalUserId: '916666555444',
+        text: 'Size: 15 employees; Tools: Slack, Notion',
+      });
+      await new Promise((r) => setTimeout(r, 30));
+
+      notifs = await engine.listNotifications();
+      assert.equal(notifs.filter((n) => n.kind === 'lead_qualified').length, 1);
+      assert.equal(sentMessages.length, 2);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it('triggers lead_started on partial WhatsApp intake and lead_qualified when completed, without duplicates', async () => {
     const { engine, sentMessages, events, unsubscribe } = await setup({ whatsappLive: true });
     try {

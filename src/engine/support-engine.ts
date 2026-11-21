@@ -627,7 +627,14 @@ export class SupportEngine {
       tenant_id: this.config.tenantId,
     });
 
-    await this.conversations.recordInbound(session, msg.text, displayNameFrom(msg.metadata));
+    const displayName = displayNameFrom(msg.metadata);
+    const existingConversation = await this.conversations.get(session.id);
+    const isNewCustomerEntry =
+      !existingConversation ||
+      existingConversation.status === 'closed' ||
+      !existingConversation.last_inbound_at;
+
+    await this.conversations.recordInbound(session, msg.text, displayName);
 
     // A human owns this conversation: record the message and let the agent wait.
     if (!(await this.conversations.isAiActive(session.id))) {
@@ -665,6 +672,18 @@ export class SupportEngine {
         await this.leadNotifier.notifyIntakeLead('lead_qualified', intake).catch((error) => {
           console.error('[notifications] failed to notify qualified lead', error);
         });
+      } else if (isNewCustomerEntry && !intake) {
+        await this.leadNotifier
+          .notifyCustomerEntered({
+            sessionId: session.id,
+            channel: session.channel,
+            externalUserId: session.external_user_id,
+            displayName,
+            text: msg.text,
+          })
+          .catch((error) => {
+            console.error('[notifications] failed to notify customer entry', error);
+          });
       }
 
       if (intake && isIntakeReady(intake.status)) {

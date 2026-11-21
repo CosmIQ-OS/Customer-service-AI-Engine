@@ -47,6 +47,18 @@ export async function getNotification(db: DBExecutor, id: number): Promise<Admin
   return row ? map(row) : undefined;
 }
 
+export async function hasSessionNotificationOfKind(
+  db: DBExecutor,
+  sessionId: string,
+  kind: string,
+): Promise<boolean> {
+  const row = await db.queryOne<{ id: number }>(
+    'SELECT id FROM admin_notifications WHERE session_id = $1 AND kind = $2 LIMIT 1',
+    [sessionId, kind],
+  );
+  return Boolean(row);
+}
+
 export async function listNotifications(
   db: DBExecutor,
   options: { limit?: number; unreadOnly?: boolean } = {},

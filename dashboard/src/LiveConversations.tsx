@@ -143,13 +143,15 @@ function FormattedMessage({ text }: { text: string }) {
 }
 
 interface LiveConversationsProps {
+  initialSessionId?: string | null;
   onUnauthorized?: () => void;
 }
 
-export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
+export function LiveConversations({ initialSessionId, onUnauthorized }: LiveConversationsProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(initialSessionId ?? null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [loadingThread, setLoadingThread] = useState(false);
   const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'human' | 'ai'>('all');
@@ -166,6 +168,17 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
   const prevThreadIdRef = useRef<string | null>(null);
   const prevMsgCountRef = useRef<number>(0);
   const currentThreadIdRef = useRef<string | null>(null);
+  const loadingThreadRef = useRef<boolean>(false);
+  const requestSeqRef = useRef<number>(0);
+  const selectedRef = useRef<string | null>(selected);
+  selectedRef.current = selected;
+
+  useEffect(() => {
+    if (initialSessionId) {
+      setSelected(initialSessionId);
+      setMobileView('chat');
+    }
+  }, [initialSessionId]);
 
   const handleError = useCallback(
     (err: unknown) => {
@@ -193,33 +206,49 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
   }, [handleError]);
 
   const loadThread = useCallback(
-    async (sessionId: string) => {
+    async (sessionId: string, opts: { isSwitch?: boolean } = {}) => {
+      const seq = ++requestSeqRef.current;
+      if (opts.isSwitch) {
+        loadingThreadRef.current = true;
+        setLoadingThread(true);
+      }
       try {
-        const payload = await api<{ messages: Message[] }>(`/api/conversations/${sessionId}/messages`);
+        const payload = await api<{ messages: Message[] }>(
+          `/api/conversations/${encodeURIComponent(sessionId)}/messages`,
+        );
+        // Discard stale responses if the user already clicked a different person
+        if (selectedRef.current !== sessionId || seq < requestSeqRef.current) {
+          return;
+        }
+        const incoming = payload.messages ?? [];
         if (currentThreadIdRef.current !== sessionId) {
           currentThreadIdRef.current = sessionId;
-          setMessages(payload.messages);
+          setMessages(incoming);
         } else {
           setMessages((prev) => {
-            if (prev.length === payload.messages.length) {
+            if (prev.length === incoming.length) {
               const pLast = prev[prev.length - 1];
-              const nLast = payload.messages[payload.messages.length - 1];
+              const nLast = incoming[incoming.length - 1];
               if (pLast?.id === nLast?.id && pLast?.content === nLast?.content) {
                 return prev;
               }
             }
-            return payload.messages;
+            return incoming;
           });
         }
       } catch (err) {
-        handleError(err);
+        if (selectedRef.current === sessionId) {
+          handleError(err);
+        }
+      } finally {
+        if (selectedRef.current === sessionId && seq === requestSeqRef.current) {
+          loadingThreadRef.current = false;
+          setLoadingThread(false);
+        }
       }
     },
     [handleError]
   );
-
-  const selectedRef = useRef<string | null>(null);
-  selectedRef.current = selected;
 
   const handleScroll = useCallback(() => {
     if (!streamRef.current) return;
@@ -259,7 +288,7 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
           if (first) setSelected(first);
         }
         const open = selectedRef.current;
-        if (open) await loadThread(open);
+        if (open && !loadingThreadRef.current) await loadThread(open);
       } catch (err) {
         if (active) handleError(err);
       }
@@ -278,24 +307,31 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
       currentThreadIdRef.current = null;
       return;
     }
+    // Clear previous person's messages immediately so transcripts never mix across people
+    if (currentThreadIdRef.current !== selected) {
+      setMessages([]);
+      currentThreadIdRef.current = null;
+    }
     shouldScrollToBottomOnLoadRef.current = true;
     isAtBottomRef.current = true;
     setShowScrollBottom(false);
     setHasNewMessagesBelow(false);
-    void loadThread(selected);
+    void loadThread(selected, { isSwitch: true });
   }, [selected, loadThread]);
 
   useEffect(() => {
-    if (!streamRef.current) return;
+    if (!streamRef.current || loadingThread) return;
 
-    const threadChanged = selected !== prevThreadIdRef.current;
-    const newMessagesArrived = messages.length > prevMsgCountRef.current;
+    const newMessagesArrived =
+      prevThreadIdRef.current === selected && messages.length > prevMsgCountRef.current;
 
     prevThreadIdRef.current = selected;
     prevMsgCountRef.current = messages.length;
 
-    if (threadChanged || shouldScrollToBottomOnLoadRef.current) {
-      shouldScrollToBottomOnLoadRef.current = false;
+    if (shouldScrollToBottomOnLoadRef.current) {
+      if (messages.length > 0 || currentThreadIdRef.current === selected) {
+        shouldScrollToBottomOnLoadRef.current = false;
+      }
       isAtBottomRef.current = true;
       setShowScrollBottom(false);
       setHasNewMessagesBelow(false);
@@ -323,7 +359,7 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
         setShowScrollBottom(true);
       }
     }
-  }, [messages, selected]);
+  }, [messages, selected, loadingThread]);
 
   // Auto-clear notice after 4 seconds
   useEffect(() => {
@@ -502,9 +538,9 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
                     type="button"
                     className={`inbox-item ${isSelected ? 'active' : ''}`}
                     onClick={() => {
+                      selectedRef.current = c.sessionId;
                       setSelected(c.sessionId);
                       setMobileView('chat');
-                      void loadThread(c.sessionId);
                     }}
                   >
                     <div className="inbox-item-avatar">
@@ -603,7 +639,11 @@ export function LiveConversations({ onUnauthorized }: LiveConversationsProps) {
 
               <div className="chat-stream-wrapper">
                 <div className="chat-thread-stream" ref={streamRef} onScroll={handleScroll}>
-                  {messages.length === 0 ? (
+                  {loadingThread && messages.length === 0 ? (
+                    <div className="muted small" style={{ textAlign: 'center', marginTop: 40 }}>
+                      Loading conversation transcript…
+                    </div>
+                  ) : messages.length === 0 ? (
                     <div className="muted small" style={{ textAlign: 'center', marginTop: 40 }}>
                       No messages recorded in this session yet.
                     </div>

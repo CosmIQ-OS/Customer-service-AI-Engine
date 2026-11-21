@@ -123,6 +123,7 @@ export function App() {
   const [updatingLeadId, setUpdatingLeadId] = useState<number | null>(null);
   const [deletingLeadId, setDeletingLeadId] = useState<number | null>(null);
   const [highlightedLead, setHighlightedLead] = useState<{ intakeId?: number | null; sessionId?: string | null } | null>(null);
+  const [inboxSessionId, setInboxSessionId] = useState<string | null>(null);
   const [logFilter, setLogFilter] = useState<'all' | 'inbound' | 'outbound' | 'system'>('all');
 
   const [showServiceModal, setShowServiceModal] = useState(false);
@@ -261,7 +262,9 @@ export function App() {
 
   const handleNotificationNavigate = useCallback((target: NotificationTarget) => {
     setActiveTab(target.tab);
-    if (target.tab === 'intakes' && (target.intakeId || target.sessionId)) {
+    if (target.tab === 'inbox' && target.sessionId) {
+      setInboxSessionId(target.sessionId);
+    } else if (target.tab === 'intakes' && (target.intakeId || target.sessionId)) {
       setIntakeSearch('');
       setIntakeChannelFilter('all');
       setIntakeDateFilter('all');
@@ -607,7 +610,12 @@ export function App() {
       )}
 
       {/* 02 LIVE INBOX */}
-      {activeTab === 'inbox' && <LiveConversations onUnauthorized={() => setAdmin(null)} />}
+      {activeTab === 'inbox' && (
+        <LiveConversations
+          initialSessionId={inboxSessionId}
+          onUnauthorized={() => setAdmin(null)}
+        />
+      )}
 
       {/* 03 LEADS & INTAKE */}
       {activeTab === 'intakes' && (
