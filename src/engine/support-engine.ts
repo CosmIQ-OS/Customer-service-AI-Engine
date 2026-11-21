@@ -391,6 +391,17 @@ export class SupportEngine {
   sendTestLeadNotification() {
     return this.leadNotifier.sendTestAlert();
   }
+  async recordWhatsappDeliveryFailure(recipient: string, reason: string, rawStatus: unknown) {
+    await logsRepo.createLog(this.db, {
+      channel: 'whatsapp',
+      external_user_id: recipient,
+      session_id: null,
+      direction: 'system',
+      event: 'whatsapp.delivery_failed',
+      message: `Meta failed to deliver WhatsApp message to ${recipient}: ${reason}`,
+      payload: { recipient, reason, status: rawStatus },
+    });
+  }
 
   /** Live conversations: who answers, what is waiting, and the idle sweep. */
   listConversations(limit?: number) { return this.conversations.list(limit); }

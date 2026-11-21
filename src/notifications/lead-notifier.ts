@@ -267,13 +267,25 @@ export class LeadNotifier {
             payload: { errors: report.errors },
           });
         }
+        const nowMs = this.now().getTime();
+        const inactiveRecipients = settings.whatsappRecipients.filter((phone) => {
+          const last = settings.whatsappLastPingAt[phone];
+          if (!last) return true;
+          const parsed = Date.parse(last);
+          return Number.isNaN(parsed) || parsed + FREE_WINDOW_MS <= nowMs;
+        });
+        const windowWarning =
+          report.sent > 0 && inactiveRecipients.length > 0
+            ? ` (Note: ${inactiveRecipients.join(', ')} has NOT sent /ping in the last 24h — Meta silently drops free text messages until that number sends /ping to your bot.)`
+            : '';
+
         result.whatsapp = {
           status: report.sent > 0 ? 'sent' : 'failed',
           sent: report.sent,
           failed: report.failed,
           detail:
             report.sent > 0
-              ? `Delivered to ${report.sent} admin WhatsApp number(s).`
+              ? `Sent to Meta API for ${report.sent} admin WhatsApp number(s).${windowWarning}`
               : report.errors[0] || 'Delivery failed (check if 24h free window expired — send /ping to your bot).',
         };
       }

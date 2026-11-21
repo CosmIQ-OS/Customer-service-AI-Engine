@@ -116,6 +116,21 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
   app.post('/api/channels/whatsapp/webhook', async (req, res) => {
     res.status(200).send('EVENT_RECEIVED');
 
+    // Capture asynchronous Meta delivery failure callbacks (e.g. 131047 24h window expired, 131030 test allowlist)
+    const entryValue = (req.body as any)?.entry?.[0]?.changes?.[0]?.value;
+    const statuses = Array.isArray(entryValue?.statuses) ? entryValue.statuses : [];
+    for (const st of statuses) {
+      if (st?.status === 'failed') {
+        const firstErr = Array.isArray(st.errors) ? st.errors[0] : undefined;
+        const recipient = String(st.recipient_id ?? 'unknown');
+        const reason = firstErr
+          ? `[${firstErr.code ?? 'err'}] ${firstErr.title ?? ''} ${firstErr.message ?? ''}`.trim()
+          : 'Meta reported message delivery failed';
+        console.warn(`[whatsapp-webhook] Delivery failed to ${recipient}: ${reason}`);
+        await engine.recordWhatsappDeliveryFailure(recipient, reason, st).catch(() => undefined);
+      }
+    }
+
     const adapter = engine.adapters.get('whatsapp');
     if (!adapter) return;
     const msg = adapter.normalize(req.body);
