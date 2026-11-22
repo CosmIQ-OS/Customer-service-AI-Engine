@@ -276,4 +276,76 @@ describe('lead notifications (dashboard + free WhatsApp admin alerts)', () => {
       unsub();
     }
   });
+
+  it('deduplicates duplicate WhatsApp webhook deliveries by wamid and 8-second burst guard', async () => {
+    const { engine, sentMessages, unsubscribe } = await setup({ whatsappLive: true });
+    try {
+      const wa = engine.adapters.get('whatsapp')!;
+      const webhookPayload = {
+        entry: [
+          {
+            changes: [
+              {
+                value: {
+                  contacts: [{ profile: { name: 'Rinshid' } }],
+                  messages: [
+                    {
+                      id: 'wamid.HBgMOTE3NTk0ODI3NDI5FQIAEhgWM0VCMDEyMzQ1',
+                      from: '917594827429',
+                      timestamp: '1700000100',
+                      text: { body: 'Hi' },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+
+      const msg1 = wa.normalize(webhookPayload)!;
+      const msg2 = wa.normalize(webhookPayload)!;
+      assert.equal(msg1.metadata?.messageId, 'wamid.HBgMOTE3NTk0ODI3NDI5FQIAEhgWM0VCMDEyMzQ1');
+
+      // Concurrent delivery of the exact same wamid
+      const [res1, res2] = await Promise.all([engine.handleMessage(msg1), engine.handleMessage(msg2)]);
+      const processed = [res1, res2].filter((r) => r.intent !== 'duplicate_ignored');
+      const ignored = [res1, res2].filter((r) => r.intent === 'duplicate_ignored');
+
+      assert.equal(processed.length, 1);
+      assert.equal(ignored.length, 1);
+      assert.equal(ignored[0].reply, '');
+
+      // Even if a second webhook arrives within 8s with a different/missing messageId but identical text ("Hi"), burst guard blocks it
+      const burstDup = await engine.handleMessage({
+        channel: 'whatsapp',
+        externalUserId: '917594827429',
+        text: 'Hi',
+        metadata: { messageId: 'wamid.SECOND_DELIVERY' },
+      });
+      assert.equal(burstDup.intent, 'duplicate_ignored');
+      assert.equal(burstDup.reply, '');
+
+      // Verify only 1 user message + 1 AI reply stored in the transcript
+      const messages = await engine.listMessages(processed[0].sessionId);
+      assert.equal(messages.length, 2);
+      assert.equal(messages[0].role, 'user');
+      assert.equal(messages[0].content, 'Hi');
+      assert.equal(messages[1].role, 'assistant');
+
+      // Different follow-up text from the same user processes normally
+      const followUp = await engine.handleMessage({
+        channel: 'whatsapp',
+        externalUserId: '917594827429',
+        text: 'What services are available?',
+        metadata: { messageId: 'wamid.FOLLOW_UP_1' },
+      });
+      assert.notEqual(followUp.intent, 'duplicate_ignored');
+      assert.ok(followUp.reply.trim().length > 0);
+      assert.equal((await engine.listMessages(processed[0].sessionId)).length, 4);
+      assert.ok(sentMessages.length >= 1);
+    } finally {
+      unsubscribe();
+    }
+  });
 });

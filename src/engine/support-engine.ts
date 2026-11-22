@@ -14,6 +14,7 @@ import type { QuoteRecord } from '../db/repositories/quotes.js';
 import * as contractProposalsRepo from '../db/repositories/contract-proposals.js';
 import * as settingsRepo from '../db/repositories/settings.js';
 import * as notificationsRepo from '../db/repositories/notifications.js';
+import * as dedupRepo from '../db/repositories/dedup.js';
 import { extractEmailFromText, isIntakeReady, type IntakeStatus } from '../intake/intake.js';
 import { detectLanguage } from '../intake/language.js';
 import { PricingAgent } from '../pricing/pricing-agent.js';
@@ -568,6 +569,25 @@ export class SupportEngine {
   }
 
   async handleMessage(msg: InboundMessage): Promise<EngineResponse> {
+    const rawMsgId = msg.metadata?.messageId ?? msg.metadata?.id;
+    const externalMessageId =
+      typeof rawMsgId === 'string' || typeof rawMsgId === 'number' ? String(rawMsgId) : undefined;
+    const claim = await dedupRepo.claimInboundMessage(this.db, {
+      channel: msg.channel,
+      externalUserId: msg.externalUserId,
+      text: msg.text,
+      externalMessageId,
+      burstWindowSeconds: msg.channel === 'whatsapp' || Boolean(externalMessageId) ? 8 : 0,
+    });
+    if (!claim.claimed) {
+      return {
+        reply: '',
+        intent: 'duplicate_ignored',
+        sessionId: '',
+        data: { duplicate: true, reason: claim.reason },
+      };
+    }
+
     if (msg.channel === 'whatsapp') {
       const adminCheck = await this.leadNotifier.handleInboundWhatsappAdminCheck(msg.externalUserId, msg.text);
       if (adminCheck.intercepted) {

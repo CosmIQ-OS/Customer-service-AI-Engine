@@ -157,7 +157,12 @@ export class WhatsAppAdapter implements ChannelAdapter {
       channel: 'whatsapp',
       externalUserId: String(msg.from),
       text: String(msg.text.body),
-      metadata: { profile, name: profile?.name },
+      metadata: {
+        profile,
+        name: profile?.name,
+        messageId: msg.id ? String(msg.id) : undefined,
+        timestamp: msg.timestamp ? String(msg.timestamp) : undefined,
+      },
     };
   }
 }
