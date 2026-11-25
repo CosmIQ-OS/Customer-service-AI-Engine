@@ -172,6 +172,20 @@ export function Approvals({ refreshKey = 0, onChanged }: { refreshKey?: number; 
     setError('');
     setMessage('');
     try {
+      const marginNum = Number(margin);
+      const hasEdits =
+        marginNum !== detail.quote.margin_percent ||
+        detail.items.some((item) => parsedQuantity(item) !== item.quantity);
+      if (hasEdits) {
+        const updated = await api<QuoteDetail>(`/api/quotes/${detail.quote.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            marginPercent: marginNum,
+            items: detail.items.map((item) => ({ id: item.id, quantity: parsedQuantity(item) })),
+          }),
+        });
+        setDetail(updated);
+      }
       const result = await api<{ quote: Quote; message: string; delivered: boolean }>(
         `/api/quotes/${detail.quote.id}/approve`,
         { method: 'POST' },

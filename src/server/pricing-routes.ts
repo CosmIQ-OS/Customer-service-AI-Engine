@@ -11,24 +11,35 @@ const uploadSchema = z.object({
   contentBase64: z.string().min(1).max(1_000_000),
 });
 
+const MAX_PG_INT4 = 2_147_483_647;
+
+function parsePositiveIntId(raw: string): number | null {
+  const id = Number(raw);
+  if (!Number.isInteger(id) || id <= 0 || id > MAX_PG_INT4) return null;
+  return id;
+}
+
 export function createPricingRouter(db: DB): Router {
   const router = Router();
 
   router.get('/services/:id/price-table', asyncHandler(async (req, res) => {
-    const serviceId = Number(req.params.id);
+    const serviceId = parsePositiveIntId(req.params.id);
+    if (serviceId === null) return res.status(400).json({ error: 'Invalid service id' });
     if (!(await servicesRepo.getService(db, serviceId))) return res.status(404).json({ error: 'Service not found' });
     const table = (await pricingRepo.activePriceTable(db, serviceId)) ?? null;
     res.json({ table, items: table ? await pricingRepo.listPriceItems(db, table.id) : [] });
   }));
 
   router.get('/services/:id/price-tables', asyncHandler(async (req, res) => {
-    const serviceId = Number(req.params.id);
+    const serviceId = parsePositiveIntId(req.params.id);
+    if (serviceId === null) return res.status(400).json({ error: 'Invalid service id' });
     if (!(await servicesRepo.getService(db, serviceId))) return res.status(404).json({ error: 'Service not found' });
     res.json({ tables: await pricingRepo.listPriceTables(db, serviceId) });
   }));
 
   router.post('/services/:id/price-table', asyncHandler(async (req, res) => {
-    const serviceId = Number(req.params.id);
+    const serviceId = parsePositiveIntId(req.params.id);
+    if (serviceId === null) return res.status(400).json({ error: 'Invalid service id' });
     if (!(await servicesRepo.getService(db, serviceId))) return res.status(404).json({ error: 'Service not found' });
 
     const parsed = uploadSchema.safeParse(req.body);

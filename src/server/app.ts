@@ -6,7 +6,13 @@ import { z } from 'zod';
 import type { SupportEngine } from '../engine/support-engine.js';
 import type { AdminAuth } from '../auth/admin-auth.js';
 import { createAuthRouter } from '../auth/routes.js';
-import { requireAdmin, requireWebhookSecret } from '../auth/http.js';
+import {
+  requireAdmin,
+  requireWebhookSecret,
+  requireWhatsAppSignature,
+  sameSecret,
+  type RequestWithRawBody,
+} from '../auth/http.js';
 import { asyncHandler } from './async-handler.js';
 import { createRateLimiter } from './rate-limiter.js';
 import { createPricingRouter } from './pricing-routes.js';
@@ -18,9 +24,11 @@ export interface AppOptions {
   auth: AdminAuth;
   sessionHours: number;
   cookieSecure: boolean;
+  trustProxy?: boolean | number;
   dashboardOrigin?: string;
   webhookSecret?: string;
   whatsappVerifyToken?: string;
+  whatsappAppSecret?: string;
 }
 
 const MAX_PG_INT4 = 2_147_483_647;
@@ -29,6 +37,12 @@ function parseServiceId(raw: string): number | null {
   const id = Number(raw);
   if (!Number.isInteger(id) || id <= 0 || id > MAX_PG_INT4) return null;
   return id;
+}
+
+function parseLimit(raw: unknown, fallback: number, max = 500): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(Math.floor(n), max);
 }
 
 const serviceStatusSchema = z.enum(['available', 'unavailable', 'limited', 'maintenance']);
@@ -68,8 +82,18 @@ const updateIntakeStatusSchema = z.object({
 
 export function createApp(engine: SupportEngine, options: AppOptions) {
   const app = express();
+  if (options.trustProxy) {
+    app.set('trust proxy', options.trustProxy === true ? 1 : options.trustProxy);
+  }
   app.use(cors({ origin: options.dashboardOrigin ?? false, credentials: true }));
-  app.use(express.json({ limit: '5mb' }));
+  app.use(
+    express.json({
+      limit: '5mb',
+      verify: (req, _res, buf) => {
+        (req as RequestWithRawBody).rawBody = buf;
+      },
+    }),
+  );
 
   app.get('/api/health', asyncHandler(async (_req, res) => {
     await engine.db.queryOne('SELECT 1 AS ok');
@@ -88,7 +112,8 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
     asyncHandler<{ channel: string }>(async (req, res) => {
       const adapter = engine.adapters.get(req.params.channel);
       if (!adapter) return res.status(404).json({ error: `Unknown channel: ${req.params.channel}` });
-      const msg = adapter.normalize(req.body.payload ?? req.body);
+      const rawBody = req.body && typeof req.body === 'object' ? (req.body.payload ?? req.body) : req.body;
+      const msg = adapter.normalize(rawBody);
       if (!msg) return res.status(400).json({ error: 'Could not normalize payload' });
       const result = await engine.handleMessage(msg);
       // An empty reply means a human owns the conversation, so nothing is sent.
@@ -103,9 +128,14 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
 
-    if (mode === 'subscribe' && options.whatsappVerifyToken && token === options.whatsappVerifyToken) {
+    if (
+      mode === 'subscribe' &&
+      options.whatsappVerifyToken &&
+      typeof token === 'string' &&
+      sameSecret(token, options.whatsappVerifyToken)
+    ) {
       console.log('[whatsapp-webhook] Successfully verified by Meta webhook handshake!');
-      res.status(200).send(challenge);
+      res.type('text/plain').status(200).send(typeof challenge === 'string' ? challenge : '');
       return;
     }
     console.warn('[whatsapp-webhook] Verification failed. Mode or token mismatch.');
@@ -113,8 +143,11 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
   });
 
   // Meta WhatsApp Cloud API Webhook receiver (POST)
-  app.post('/api/channels/whatsapp/webhook', async (req, res) => {
-    res.status(200).send('EVENT_RECEIVED');
+  app.post(
+    '/api/channels/whatsapp/webhook',
+    requireWhatsAppSignature(options.whatsappAppSecret),
+    async (req, res) => {
+      res.status(200).send('EVENT_RECEIVED');
 
     // Capture asynchronous Meta delivery failure callbacks (e.g. 131047 24h window expired, 131030 test allowlist)
     const entryValue = (req.body as any)?.entry?.[0]?.changes?.[0]?.value;
@@ -127,7 +160,9 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
           ? `[${firstErr.code ?? 'err'}] ${firstErr.title ?? ''} ${firstErr.message ?? ''}`.trim()
           : 'Meta reported message delivery failed';
         console.warn(`[whatsapp-webhook] Delivery failed to ${recipient}: ${reason}`);
-        await engine.recordWhatsappDeliveryFailure(recipient, reason, st).catch(() => undefined);
+        await engine
+          .recordWhatsappDeliveryFailure(recipient, reason, st)
+          .catch((err) => console.error('[whatsapp-webhook] Failed to persist delivery failure:', err));
       }
     }
 
@@ -294,7 +329,8 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
     res.status(201).json(await engine.createFaq(parsed.data));
   }));
   app.patch('/api/faqs/:id', asyncHandler(async (req, res) => {
-    const id = Number(req.params.id);
+    const id = parseServiceId(req.params.id);
+    if (id === null) return res.status(400).json({ error: 'Invalid FAQ id' });
     const parsed = faqSchema.partial().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     const row = await engine.updateFaq(id, parsed.data);
@@ -303,22 +339,22 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
   }));
 
   app.get('/api/requests', asyncHandler(async (req, res) => {
-    res.json(await engine.listRequests(Number(req.query.limit) || 100));
+    res.json(await engine.listRequests(parseLimit(req.query.limit, 100)));
   }));
   app.get('/api/logs', asyncHandler(async (req, res) => {
-    res.json(await engine.listLogs(Number(req.query.limit) || 200));
+    res.json(await engine.listLogs(parseLimit(req.query.limit, 200)));
   }));
   app.get('/api/sessions', asyncHandler(async (req, res) => {
-    res.json(await engine.listSessions(Number(req.query.limit) || 100));
+    res.json(await engine.listSessions(parseLimit(req.query.limit, 100)));
   }));
   app.get('/api/sessions/:id/messages', asyncHandler(async (req, res) => {
-    res.json(await engine.listMessages(req.params.id, Number(req.query.limit) || 100));
+    res.json(await engine.listMessages(req.params.id, parseLimit(req.query.limit, 100)));
   }));
   app.get('/api/traces', asyncHandler(async (req, res) => {
-    res.json(await engine.listTraces(Number(req.query.limit) || 100));
+    res.json(await engine.listTraces(parseLimit(req.query.limit, 100)));
   }));
   app.get('/api/intakes', asyncHandler(async (req, res) => {
-    res.json(await engine.listIntakes(Number(req.query.limit) || 100));
+    res.json(await engine.listIntakes(parseLimit(req.query.limit, 100)));
   }));
   app.patch('/api/intakes/:id', asyncHandler(async (req, res) => {
     const id = parseServiceId(req.params.id);

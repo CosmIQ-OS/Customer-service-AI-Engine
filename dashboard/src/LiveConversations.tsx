@@ -96,7 +96,7 @@ function FormattedMessage({ text }: { text: string }) {
     const parts: ReactNode[] = [];
     const regex = /\*\*(.+?)\*\*|\*(.+?)\*/g;
     let lastIndex = 0;
-    let match;
+    let match: RegExpExecArray | null;
     while ((match = regex.exec(line)) !== null) {
       if (match.index > lastIndex) {
         parts.push(line.slice(lastIndex, match.index));
@@ -374,7 +374,7 @@ export function LiveConversations({ initialSessionId, onUnauthorized }: LiveConv
     setError('');
     setNotice('');
     try {
-      await api(`/api/conversations/${selected}${path}`, { method: 'POST' });
+      await api(`/api/conversations/${encodeURIComponent(selected)}${path}`, { method: 'POST' });
       setNotice(label);
       await loadList();
       await loadThread(selected);
@@ -395,7 +395,7 @@ export function LiveConversations({ initialSessionId, onUnauthorized }: LiveConv
     setBusy(true);
     setError('');
     try {
-      const result = await api<{ delivered: boolean }>(`/api/conversations/${selected}/reply`, {
+      const result = await api<{ delivered: boolean }>(`/api/conversations/${encodeURIComponent(selected)}/reply`, {
         method: 'POST',
         body: JSON.stringify({ text: draft.trim() }),
       });
@@ -431,7 +431,7 @@ export function LiveConversations({ initialSessionId, onUnauthorized }: LiveConv
     setBusy(true);
     setError('');
     try {
-      await api(`/api/conversations/${selected}/messages/${messageId}`, { method: 'DELETE' });
+      await api(`/api/conversations/${encodeURIComponent(selected)}/messages/${messageId}`, { method: 'DELETE' });
       setMessages((prev) => prev.filter((m) => m.id !== messageId));
       setNotice('Sent message deleted.');
       await loadList();

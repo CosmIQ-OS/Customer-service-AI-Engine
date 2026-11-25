@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, describe, it } from 'node:test';
@@ -10,13 +11,19 @@ import { createApp } from './app.js';
 
 const PASSWORD = 'a-long-test-password';
 const WEBHOOK_SECRET = 'webhook-secret-0123456789';
+const WHATSAPP_APP_SECRET = 'meta-app-secret-test-value';
+const WHATSAPP_VERIFY_TOKEN = 'meta-verify-token-test';
 
 interface Harness {
   base: string;
   close: () => Promise<void>;
 }
 
-async function startServer(db: DB, auth: AdminAuth, webhookSecret?: string): Promise<Harness> {
+async function startServer(
+  db: DB,
+  auth: AdminAuth,
+  options: { webhookSecret?: string; whatsappVerifyToken?: string; whatsappAppSecret?: string } = {},
+): Promise<Harness> {
   const engine = new SupportEngine(db, {
     sessionTtlMinutes: 120,
     llm: new MockLLMProvider(),
@@ -26,7 +33,14 @@ async function startServer(db: DB, auth: AdminAuth, webhookSecret?: string): Pro
     temperature: 0,
     tenantId: 'test',
   });
-  const app = createApp(engine, { auth, sessionHours: 1, cookieSecure: false, webhookSecret });
+  const app = createApp(engine, {
+    auth,
+    sessionHours: 1,
+    cookieSecure: false,
+    webhookSecret: options.webhookSecret,
+    whatsappVerifyToken: options.whatsappVerifyToken,
+    whatsappAppSecret: options.whatsappAppSecret,
+  });
   const server: Server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', () => resolve()));
   const { port } = server.address() as AddressInfo;
@@ -50,7 +64,11 @@ describe('admin API protection', () => {
     db = await openDatabase(':memory:');
     auth = new AdminAuth(db, { sessionHours: 1 });
     await auth.createAdmin('owner', PASSWORD);
-    harness = await startServer(db, auth, WEBHOOK_SECRET);
+    harness = await startServer(db, auth, {
+      webhookSecret: WEBHOOK_SECRET,
+      whatsappVerifyToken: WHATSAPP_VERIFY_TOKEN,
+      whatsappAppSecret: WHATSAPP_APP_SECRET,
+    });
   });
 
   after(async () => {
@@ -120,7 +138,7 @@ describe('admin API protection', () => {
   });
 
   it('disables channel ingress entirely when no webhook secret is configured', async () => {
-    const unconfigured = await startServer(db, auth, undefined);
+    const unconfigured = await startServer(db, auth, {});
     open.push(unconfigured);
     const res = await fetch(`${unconfigured.base}/api/channels/telegram/inbound`, {
       method: 'POST',
@@ -128,6 +146,56 @@ describe('admin API protection', () => {
       body: '{}',
     });
     assert.equal(res.status, 503);
+  });
+
+  it('fails closed on WhatsApp webhook POST when WHATSAPP_APP_SECRET is unset', async () => {
+    const unconfigured = await startServer(db, auth, {});
+    open.push(unconfigured);
+    const res = await fetch(`${unconfigured.base}/api/channels/whatsapp/webhook`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ entry: [] }),
+    });
+    assert.equal(res.status, 503);
+  });
+
+  it('enforces X-Hub-Signature-256 HMAC verification on WhatsApp webhook POST and plain-text GET challenge', async () => {
+    const getOk = await fetch(
+      `${harness.base}/api/channels/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=${WHATSAPP_VERIFY_TOKEN}&hub.challenge=12345`,
+    );
+    assert.equal(getOk.status, 200);
+    assert.match(getOk.headers.get('content-type') ?? '', /^text\/plain/);
+    assert.equal(await getOk.text(), '12345');
+
+    const body = JSON.stringify({ entry: [] });
+    const missingSig = await fetch(`${harness.base}/api/channels/whatsapp/webhook`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+    });
+    assert.equal(missingSig.status, 401);
+
+    const badSig = await fetch(`${harness.base}/api/channels/whatsapp/webhook`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hub-signature-256': `sha256=${'0'.repeat(64)}`,
+      },
+      body,
+    });
+    assert.equal(badSig.status, 401);
+
+    const validSig = `sha256=${createHmac('sha256', WHATSAPP_APP_SECRET).update(body).digest('hex')}`;
+    const okRes = await fetch(`${harness.base}/api/channels/whatsapp/webhook`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hub-signature-256': validSig,
+      },
+      body,
+    });
+    assert.equal(okRes.status, 200);
+    assert.equal(await okRes.text(), 'EVENT_RECEIVED');
   });
 
   it('serves collected intakes to signed-in admins', async () => {

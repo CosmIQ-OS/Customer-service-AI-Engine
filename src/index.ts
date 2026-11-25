@@ -63,12 +63,19 @@ export async function bootstrap() {
   await ensureDefaultSettings(db, config.QUOTE_MARGIN_PERCENT);
 
   if (!(await auth.hasAdmins())) {
-    const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || 'AdminSecret2026!';
-    try {
-      await auth.createAdmin('admin', initialPassword, 'CosmIQ Admin');
-      console.log('[auth] Created default admin account (username: admin)');
-    } catch (err) {
-      console.error('[auth] Failed to create default admin account:', err);
+    const initialPassword = process.env.ADMIN_INITIAL_PASSWORD?.trim();
+    if (initialPassword) {
+      try {
+        await auth.createAdmin('admin', initialPassword, 'CosmIQ Admin');
+        console.log('[auth] Created initial admin account (username: admin) from ADMIN_INITIAL_PASSWORD');
+      } catch (err) {
+        console.error('[auth] Failed to create initial admin account:', err);
+      }
+    } else {
+      console.warn(
+        '[auth] No admin accounts exist and ADMIN_INITIAL_PASSWORD is not set. ' +
+          'Run `npm run admin:create -- admin` or set ADMIN_INITIAL_PASSWORD before signing in.',
+      );
     }
   }
 
@@ -76,9 +83,11 @@ export async function bootstrap() {
     auth,
     sessionHours: config.ADMIN_SESSION_HOURS,
     cookieSecure: config.COOKIE_SECURE,
+    trustProxy: config.TRUST_PROXY || Boolean(process.env.RENDER),
     dashboardOrigin: config.DASHBOARD_ORIGIN,
     webhookSecret: config.CHANNEL_WEBHOOK_SECRET,
     whatsappVerifyToken: config.WHATSAPP_VERIFY_TOKEN,
+    whatsappAppSecret: config.WHATSAPP_APP_SECRET,
   });
 
   const server = app.listen(config.PORT, () => {

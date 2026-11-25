@@ -121,9 +121,16 @@ export class AdminAuth {
   }
 
   private recordFailure(key: string, now: number): void {
-    if (this.failures.size > 1000) this.pruneFailures(now);
     const entry = this.failures.get(key);
     if (!entry || now - entry.firstAt > this.windowMs) {
+      if (!entry && this.failures.size >= 1000) {
+        this.pruneFailures(now);
+        while (this.failures.size >= 1000) {
+          const oldest = this.failures.keys().next().value;
+          if (oldest === undefined) break;
+          this.failures.delete(oldest);
+        }
+      }
       this.failures.set(key, { count: 1, firstAt: now });
     } else {
       entry.count += 1;

@@ -30,11 +30,20 @@ describe('loadConfig', () => {
     assert.throws(() => loadConfig({ QUOTE_MARGIN_PERCENT: '36' }));
   });
 
-  it('parses the cookie flag and treats a blank webhook secret as unset', () => {
-    const config = loadConfig({ COOKIE_SECURE: 'true', CHANNEL_WEBHOOK_SECRET: '' });
+  it('parses the cookie flag, trust proxy flag, and treats blank secrets as unset', () => {
+    const config = loadConfig({
+      COOKIE_SECURE: 'true',
+      TRUST_PROXY: 'true',
+      CHANNEL_WEBHOOK_SECRET: '',
+      WHATSAPP_APP_SECRET: '   ',
+    });
     assert.equal(config.COOKIE_SECURE, true);
+    assert.equal(config.TRUST_PROXY, true);
     assert.equal(config.CHANNEL_WEBHOOK_SECRET, undefined);
+    assert.equal(config.WHATSAPP_APP_SECRET, undefined);
     assert.equal(loadConfig({}).COOKIE_SECURE, false);
+    assert.equal(loadConfig({}).TRUST_PROXY, false);
+    assert.equal(loadConfig({ WHATSAPP_APP_SECRET: 'secret123' }).WHATSAPP_APP_SECRET, 'secret123');
   });
 
   it('rejects webhook secrets shorter than 16 characters', () => {

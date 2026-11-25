@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+set -e
+
+echo "[pre-commit] Running typecheck across backend, dashboard, e2e, and eval..."
+npm run typecheck:all
+
+echo "[pre-commit] Running Biome lint..."
+npm run lint

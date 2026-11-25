@@ -223,12 +223,14 @@ export class TelegramAdapter implements ChannelAdapter {
     // The bot token is part of the Bot API path, so the URL must never end up
     // in a log line or an error message.
     const url = `${TELEGRAM_API}/bot${this.token}/${method}`;
+    const timeoutMs = method === 'getUpdates' ? 40_000 : 15_000;
     let res: Response;
     try {
       res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body ?? {}),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
       throw new Error(`Telegram ${method} request failed: ${this.redact(errorText(error))}`);

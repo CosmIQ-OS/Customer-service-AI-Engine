@@ -74,6 +74,7 @@ export async function publishPriceTable(
   input: { serviceId: number; sourceFilename: string; uploadedBy: number | null; items: PriceItemDraft[] },
 ): Promise<PriceTableRecord> {
   return db.transaction(async (tx) => {
+    await tx.query('SELECT pg_advisory_xact_lock(71003, $1)', [input.serviceId]);
     const nextRow = await tx.queryOne<{ next: number }>(
       'SELECT (COALESCE(MAX(version), 0) + 1)::int AS next FROM price_tables WHERE service_id = $1',
       [input.serviceId],

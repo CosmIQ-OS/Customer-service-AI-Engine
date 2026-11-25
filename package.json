@@ -9,13 +9,19 @@
     "start:prod": "node dist/index.js",
     "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs');fs.cpSync('src/db/schema.sql','dist/db/schema.sql');fs.cpSync('src/db/migrations','dist/db/migrations',{recursive:true});\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/adapters/*.test.ts src/approvals/*.test.ts src/auth/*.test.ts src/config/*.test.ts src/db/*.test.ts src/engine/*.test.ts src/intake/*.test.ts src/llm/*.test.ts src/pricing/*.test.ts src/server/*.test.ts",
+    "typecheck:all": "tsc -p tsconfig.json --noEmit && npm --prefix dashboard run typecheck && tsc -p e2e/tsconfig.json --noEmit && tsc -p eval/tsconfig.json --noEmit",
+    "lint": "biome lint .",
+    "lint:fix": "biome check --write .",
+    "format:check": "biome format .",
+    "hooks:install": "git config core.hooksPath .githooks",
+    "test": "tsx --test src/adapters/*.test.ts src/approvals/*.test.ts src/auth/*.test.ts src/config/*.test.ts src/db/*.test.ts src/engine/*.test.ts src/intake/*.test.ts src/kernel/*.test.ts src/llm/*.test.ts src/pricing/*.test.ts src/server/*.test.ts src/tools/*.test.ts",
     "admin:create": "tsx src/cli/create-admin.ts",
     "admin:passwd": "tsx src/cli/reset-password.ts",
     "db:migrate-sqlite": "tsx src/cli/migrate-sqlite.ts",
     "eval": "tsx eval/run-eval.ts",
     "audit": "npm audit --audit-level=high",
     "dashboard:dev": "npm --prefix dashboard run dev",
+    "dashboard:typecheck": "npm --prefix dashboard run typecheck",
     "dashboard:build": "npm --prefix dashboard run build",
     "setup": "npm install && npm --prefix dashboard install"
   },
@@ -33,6 +39,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.9",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.10",

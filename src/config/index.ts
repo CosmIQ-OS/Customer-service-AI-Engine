@@ -39,6 +39,7 @@ const envSchema = z.object({
   AGENT_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.2),
   ADMIN_SESSION_HOURS: z.coerce.number().positive().max(168).default(12),
   COOKIE_SECURE: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  TRUST_PROXY: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   CHANNEL_WEBHOOK_SECRET: z.preprocess(
     (value) => (value === '' ? undefined : value),
     z.string().min(16).optional(),
@@ -55,6 +56,10 @@ const envSchema = z.object({
   WHATSAPP_ACCESS_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+  WHATSAPP_APP_SECRET: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().min(1).optional(),
+  ),
   WHATSAPP_ADMIN_NUMBERS: z.string().optional(),
   DASHBOARD_PUBLIC_URL: z.preprocess(
     (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),

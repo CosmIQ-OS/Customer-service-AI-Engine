@@ -20,11 +20,11 @@ export interface WhatsAppAlertDeliveryReport {
   errors: string[];
 }
 
-/** Parses comma/whitespace-separated phone numbers into digits-only E.164 strings (7–15 digits). */
+/** Parses comma/semicolon/newline-separated phone numbers into digits-only E.164 strings (7–15 digits). */
 export function parseAdminPhoneNumbers(raw: string | undefined): string[] {
   if (!raw) return [];
   const seen = new Set<string>();
-  for (const part of raw.split(/[\s,;]+/)) {
+  for (const part of raw.split(/[,;\r\n]+/)) {
     const digits = part.replace(/[^\d]/g, '');
     if (digits.length >= 7 && digits.length <= 15) {
       seen.add(digits);
@@ -130,6 +130,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
           type: 'text',
           text: { body: text.slice(0, MAX_WHATSAPP_TEXT) },
         }),
+        signal: AbortSignal.timeout(15_000),
       });
     } catch (error) {
       throw new Error(`WhatsApp sendMessage request failed: ${this.redact(errorText(error))}`);

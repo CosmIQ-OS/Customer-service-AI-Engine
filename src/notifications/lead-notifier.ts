@@ -216,7 +216,9 @@ export class LeadNotifier {
       .filter(Boolean)
       .join('\n');
 
-    void this.dispatchExternal(settings, externalText, input.sessionId);
+    void this.dispatchExternal(settings, externalText, input.sessionId).catch((err) =>
+      console.error('[lead-notifier] dispatchExternal failed:', err),
+    );
     return notification;
   }
 
@@ -257,7 +259,9 @@ export class LeadNotifier {
     await this.broadcastNotification(notification);
 
     const externalText = this.formatExternalLeadMessage(kind, intake);
-    void this.dispatchExternal(settings, externalText, intake.session_id);
+    void this.dispatchExternal(settings, externalText, intake.session_id).catch((err) =>
+      console.error('[lead-notifier] dispatchExternal failed:', err),
+    );
     return notification;
   }
 
@@ -270,7 +274,9 @@ export class LeadNotifier {
     const settings = await this.getSettings();
     if (!settings.enabled || !settings.notifyOnWebsiteLead) return;
     const externalText = this.formatExternalLeadMessage('website_lead', intake);
-    void this.dispatchExternal(settings, externalText, intake.session_id);
+    void this.dispatchExternal(settings, externalText, intake.session_id).catch((err) =>
+      console.error('[lead-notifier] dispatchExternal failed:', err),
+    );
   }
 
   /** Fires a live test alert to both the dashboard (DB + SSE) and configured external channels. */

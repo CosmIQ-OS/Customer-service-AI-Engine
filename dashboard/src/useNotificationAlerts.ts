@@ -134,6 +134,15 @@ export function useNotificationAlerts({
   onNavigateRef.current = onNavigate;
   onArrivedRef.current = onNotificationArrived;
 
+  const toastTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
+  useEffect(() => {
+    return () => {
+      for (const timer of toastTimersRef.current) clearTimeout(timer);
+      toastTimersRef.current.clear();
+    };
+  }, []);
+
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((item) => item.id !== id));
   }, []);
@@ -145,9 +154,11 @@ export function useNotificationAlerts({
         if (prev.some((t) => t.id === item.id)) return prev;
         return [item, ...prev].slice(0, 4);
       });
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        toastTimersRef.current.delete(timer);
         setToasts((prev) => prev.filter((t) => t.id !== item.id));
       }, 9000);
+      toastTimersRef.current.add(timer);
 
       if (soundRef.current) {
         playNotificationChime();
@@ -248,7 +259,6 @@ export function useNotificationAlerts({
 
           if (!seenIdsRef.current.has(incoming.id)) {
             seenIdsRef.current.add(incoming.id);
-            seededRef.current = true;
             if (!incoming.read_at) {
               triggerActiveAlert(incoming);
             }

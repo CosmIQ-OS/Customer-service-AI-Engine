@@ -348,7 +348,7 @@ export class SupportEngine {
         `Service: ${queued.service_name}\n` +
         `Customer: ${queued.external_user_id} (${queued.channel})\n` +
         `Total: ${(queued.total_paise / 100).toFixed(2)} INR at ${queued.margin_percent}% margin.`,
-    );
+    ).catch((err) => console.error('[support-engine] alertOperators failed:', err));
     return { quote: queued, items: await quotesRepo.listQuoteItems(this.db, queued.id) };
   }
 
@@ -522,14 +522,16 @@ export class SupportEngine {
 
   private async deliverQuoteMessage(quote: QuoteRecord, text: string, event: string): Promise<boolean> {
     const sessionId = quote.session_id ?? '';
-    await messagesRepo.appendMessage(this.db, {
-      session_id: sessionId,
-      channel: quote.channel,
-      external_user_id: quote.external_user_id,
-      role: 'assistant',
-      content: text,
-      tenant_id: this.config.tenantId,
-    });
+    if (quote.session_id) {
+      await messagesRepo.appendMessage(this.db, {
+        session_id: quote.session_id,
+        channel: quote.channel,
+        external_user_id: quote.external_user_id,
+        role: 'assistant',
+        content: text,
+        tenant_id: this.config.tenantId,
+      });
+    }
 
     let delivered = false;
     const adapter = this.adapters.get(quote.channel);
@@ -749,7 +751,7 @@ export class SupportEngine {
           `Customer: ${session.external_user_id}\n` +
           `Message: ${msg.text.slice(0, 400)}\n` +
           `Open it in the dashboard and take over the conversation.`,
-      );
+      ).catch((err) => console.error('[support-engine] alertOperators failed:', err));
     }
     const guarded = guardPrice(result.reply);
     const reply = guarded.reply;

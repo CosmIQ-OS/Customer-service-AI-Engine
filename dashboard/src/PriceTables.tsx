@@ -57,10 +57,12 @@ export function PriceTables({ services }: { services: AnyRow[] }) {
   const [fileKey, setFileKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [isError, setIsError] = useState(false);
   const [errors, setErrors] = useState<UploadError[]>([]);
 
   useEffect(() => {
-    if (serviceId === null && services.length > 0) {
+    const exists = serviceId !== null && services.some((s) => s.id === serviceId);
+    if (!exists && services.length > 0) {
       const first = [...services].sort((a, b) => String(a.name).localeCompare(String(b.name)))[0];
       setServiceId(first.id);
     }
@@ -79,8 +81,12 @@ export function PriceTables({ services }: { services: AnyRow[] }) {
   useEffect(() => {
     if (serviceId === null) return;
     setMessage('');
+    setIsError(false);
     setErrors([]);
-    refresh(serviceId).catch((err) => setMessage(err instanceof Error ? err.message : 'Could not load price table'));
+    refresh(serviceId).catch((err) => {
+      setIsError(true);
+      setMessage(err instanceof Error ? err.message : 'Could not load price table');
+    });
   }, [serviceId]);
 
   async function upload(e: React.FormEvent) {
@@ -88,6 +94,7 @@ export function PriceTables({ services }: { services: AnyRow[] }) {
     if (!file || serviceId === null) return;
     setBusy(true);
     setMessage('');
+    setIsError(false);
     setErrors([]);
     try {
       if (file.size > MAX_BYTES) throw new Error(`Price tables must be ${MAX_BYTES / 1024} KB or smaller.`);
@@ -96,11 +103,13 @@ export function PriceTables({ services }: { services: AnyRow[] }) {
         method: 'POST',
         body: JSON.stringify({ filename: file.name, contentBase64 }),
       });
+      setIsError(false);
       setMessage(`Published version ${result.table.version} with ${result.table.item_count} items.`);
       setFile(null);
       setFileKey((key) => key + 1);
       await refresh(serviceId);
     } catch (err) {
+      setIsError(true);
       if (err instanceof ApiError && err.status === 422) {
         setErrors(err.body?.errors ?? []);
       }
@@ -214,7 +223,7 @@ export function PriceTables({ services }: { services: AnyRow[] }) {
           </form>
 
           {message && (
-            <div className={errors.length ? 'banner error' : 'banner success'} style={{ marginTop: 14 }}>
+            <div className={isError || errors.length ? 'banner error' : 'banner success'} style={{ marginTop: 14 }}>
               {message}
             </div>
           )}

@@ -74,8 +74,8 @@ const proposalItemSchema = z.object({
   description: z.string().min(1).max(500),
   unit: z.string().max(50).optional(),
   quantity: z.number().positive().max(100_000),
-  unitPricePaise: z.number().int().nonnegative(),
-  lineTotalPaise: z.number().int().nonnegative().optional(),
+  unitPricePaise: z.number().int().nonnegative().max(1_000_000_000_000),
+  lineTotalPaise: z.number().int().nonnegative().max(100_000_000_000_000).optional(),
 });
 
 const createProposalSchema = z.object({

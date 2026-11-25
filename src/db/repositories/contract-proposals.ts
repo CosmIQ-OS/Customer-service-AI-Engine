@@ -86,6 +86,7 @@ export async function getContractProposal(db: DBExecutor, id: number): Promise<C
 
 export async function createContractProposal(db: DB, input: ContractProposalInput): Promise<ContractProposalRecord> {
   return db.transaction(async (tx) => {
+    await tx.query('SELECT pg_advisory_xact_lock(71002)');
     const nextRow = await tx.queryOne<{ next: number }>(
       'SELECT (COALESCE(MAX(id), 0) + 1)::int AS next FROM contract_proposals',
     );

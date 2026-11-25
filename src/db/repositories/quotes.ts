@@ -148,6 +148,7 @@ export async function createQuote(
 ): Promise<QuoteRecord> {
   if (input.items.length === 0) throw new Error('A quote needs at least one item.');
   return db.transaction(async (tx) => {
+    await tx.query('SELECT pg_advisory_xact_lock(71001)');
     const nextRow = await tx.queryOne<{ next: number }>('SELECT (COALESCE(MAX(id), 0) + 1)::int AS next FROM quotes');
     const next = Number(nextRow?.next ?? 1);
     const quoteNumber = `Q-${new Date().getUTCFullYear()}-${String(next).padStart(4, '0')}`;
@@ -240,6 +241,7 @@ export interface ProposalInput {
 export async function createProposal(db: DB, input: ProposalInput): Promise<QuoteRecord> {
   if (input.items.length === 0) throw new Error('An invoice needs at least one line item.');
   return db.transaction(async (tx) => {
+    await tx.query('SELECT pg_advisory_xact_lock(71001)');
     const nextRow = await tx.queryOne<{ next: number }>('SELECT (COALESCE(MAX(id), 0) + 1)::int AS next FROM quotes');
     const next = Number(nextRow?.next ?? 1);
     const quoteNumber = `INV-${new Date().getUTCFullYear()}-${String(next).padStart(4, '0')}`;
