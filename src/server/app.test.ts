@@ -4,6 +4,7 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, describe, it } from 'node:test';
 import { AdminAuth } from '../auth/admin-auth.js';
+import { WhatsAppAdapter } from '../adapters/whatsapp.js';
 import { openDatabase, type DB } from '../db/database.js';
 import { SupportEngine } from '../engine/support-engine.js';
 import { MockLLMProvider } from '../llm/mock.js';
@@ -33,6 +34,7 @@ async function startServer(
     temperature: 0,
     tenantId: 'test',
   });
+  engine.adapters.register(new WhatsAppAdapter({ accessToken: '', phoneNumberId: '' }));
   const app = createApp(engine, {
     auth,
     sessionHours: 1,
@@ -196,6 +198,45 @@ describe('admin API protection', () => {
     });
     assert.equal(okRes.status, 200);
     assert.equal(await okRes.text(), 'EVENT_RECEIVED');
+  });
+
+  it('ignores stale WhatsApp webhook retries older than 5 minutes', async () => {
+    const staleTimestamp = String(Math.floor(Date.now() / 1000) - 600);
+    const stalePayload = JSON.stringify({
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                messages: [
+                  {
+                    id: 'wamid.stale.test.1',
+                    from: '919999888777',
+                    timestamp: staleTimestamp,
+                    text: { body: 'Old hi from 10 minutes ago' },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const validSig = `sha256=${createHmac('sha256', WHATSAPP_APP_SECRET).update(stalePayload).digest('hex')}`;
+    const res = await fetch(`${harness.base}/api/channels/whatsapp/webhook`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-hub-signature-256': validSig,
+      },
+      body: stalePayload,
+    });
+    assert.equal(res.status, 200);
+
+    const cookie = extractCookie((await login(harness.base, 'owner', PASSWORD)).headers.get('set-cookie') ?? '');
+    const sessionsRes = await fetch(`${harness.base}/api/sessions`, { headers: { cookie } });
+    const sessions = (await sessionsRes.json()) as Array<{ external_user_id: string }>;
+    assert.equal(sessions.some((s) => s.external_user_id === '919999888777'), false);
   });
 
   it('serves collected intakes to signed-in admins', async () => {

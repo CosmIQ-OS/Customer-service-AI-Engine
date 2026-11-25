@@ -171,6 +171,19 @@ export function createApp(engine: SupportEngine, options: AppOptions) {
     const msg = adapter.normalize(req.body);
     if (!msg) return;
 
+    // Drop stale Meta webhook retries (e.g. queued during downtime or secret mismatch)
+    // so old messages don't resurface minutes/hours later as phantom replies.
+    const rawTs = Number(msg.metadata?.timestamp);
+    if (Number.isFinite(rawTs) && rawTs > 0) {
+      const ageSeconds = Math.floor(Date.now() / 1000) - rawTs;
+      if (ageSeconds > 300) {
+        console.log(
+          `[whatsapp-webhook] Ignoring stale message from ${msg.externalUserId} (age=${ageSeconds}s, id=${String(msg.metadata?.messageId ?? 'unknown')})`,
+        );
+        return;
+      }
+    }
+
     try {
       console.log(`[whatsapp-webhook] Inbound message from ${msg.externalUserId}: "${msg.text}"`);
       const result = await engine.handleMessage(msg);
