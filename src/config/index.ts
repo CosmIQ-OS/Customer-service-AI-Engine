@@ -55,9 +55,12 @@ const envSchema = z.object({
     .transform((value) => value === 'true'),
   WHATSAPP_ACCESS_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
-  WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+  WHATSAPP_VERIFY_TOKEN: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : typeof value === 'string' ? value.trim() : value),
+    z.string().min(1).optional(),
+  ),
   WHATSAPP_APP_SECRET: z.preprocess(
-    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : typeof value === 'string' ? value.trim() : value),
     z.string().min(1).optional(),
   ),
   WHATSAPP_ADMIN_NUMBERS: z.string().optional(),

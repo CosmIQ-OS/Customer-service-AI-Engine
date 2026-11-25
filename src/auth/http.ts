@@ -71,12 +71,23 @@ export function verifyWhatsAppSignature(
 export function requireWhatsAppSignature(appSecret: string | undefined): RequestHandler {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!appSecret) {
+      console.warn('[whatsapp-webhook] Rejected POST (503): WHATSAPP_APP_SECRET is not configured.');
       res.status(503).json({ error: 'WhatsApp webhook is disabled until WHATSAPP_APP_SECRET is set' });
       return;
     }
     const rawBody = (req as RequestWithRawBody).rawBody;
     const signature = req.get(WHATSAPP_SIGNATURE_HEADER);
     if (!verifyWhatsAppSignature(rawBody, signature, appSecret)) {
+      const reason = !rawBody
+        ? 'missing_raw_body'
+        : !signature
+          ? 'missing_signature_header'
+          : !signature.startsWith('sha256=')
+            ? 'invalid_header_format'
+            : 'hmac_mismatch';
+      console.warn(
+        `[whatsapp-webhook] Rejected POST (401): ${reason} (rawBodyBytes=${rawBody?.length ?? 0}, secretLen=${appSecret.length})`,
+      );
       res.status(401).json({ error: 'Invalid WhatsApp webhook signature' });
       return;
     }
