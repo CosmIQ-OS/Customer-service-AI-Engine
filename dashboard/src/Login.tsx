@@ -40,21 +40,18 @@ export function LoginView({ onLogin, theme = 'light', onToggleTheme }: LoginView
       <div className="login-card">
         <div className="login-head">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-            <div className="kicker">COSMIQ OS // OPERATOR AUTHENTICATION</div>
+            <div className="kicker">Operator Sign-In</div>
             {onToggleTheme && (
               <button
                 type="button"
                 className="theme-btn"
-                style={{ minHeight: 28, padding: '4px 8px', fontSize: '10px' }}
                 onClick={onToggleTheme}
               >
                 {theme === 'light' ? 'PAPER' : 'OBSIDIAN'}
               </button>
             )}
           </div>
-          <h1 className="login-title">
-            COSMIQ <span className="claim">OS</span>
-          </h1>
+          <h1 className="login-title">COSMIQ OS</h1>
           <p className="login-sub">Support &amp; Deterministic Quotation Workbench</p>
         </div>
 

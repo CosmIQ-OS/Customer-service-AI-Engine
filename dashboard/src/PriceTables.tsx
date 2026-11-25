@@ -160,8 +160,8 @@ export function PriceTables({ services }: { services: AnyRow[] }) {
               <span className="mono small">
                 <strong>VERSION {table.version}</strong> · {table.item_count} ITEMS · {table.source_filename}
               </span>
-              <span className="mono muted" style={{ fontSize: '11px' }}>
-                UPLOADED // {fmtTime(table.uploaded_at)}
+              <span className="mono muted" style={{ fontSize: 'var(--text-xs)' }}>
+                Uploaded · {fmtTime(table.uploaded_at)}
               </span>
             </div>
           ) : (
@@ -252,7 +252,7 @@ export function PriceTables({ services }: { services: AnyRow[] }) {
                       <span>{version.item_count} items</span>
                       <span className="muted">{version.source_filename}</span>
                     </div>
-                    <span className="mono muted" style={{ fontSize: '11px' }}>
+                    <span className="mono muted" style={{ fontSize: 'var(--text-xs)' }}>
                       {fmtTime(version.uploaded_at)}
                     </span>
                   </div>

@@ -72,24 +72,18 @@ export function ServiceModal({ service, onClose, onSaved }: ServiceModalProps) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose} style={{
-      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-      background: 'rgba(0,0,0,0.6)', zIndex: 1000,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16
-    }}>
-      <div className="card" onClick={(e) => e.stopPropagation()} style={{
-        width: '100%', maxWidth: 520, background: 'var(--bg-surface)',
-        border: '1px solid var(--border-default)', boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-        maxHeight: '90vh', overflowY: 'auto'
-      }}>
-        <div className="panel-title" style={{ marginBottom: 14 }}>
-          <strong>{isEdit ? 'EDIT SERVICE' : 'ADD NEW SERVICE'}</strong>
-          <button type="button" className="banner-close" onClick={onClose}>✕</button>
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div className="modal-head-title">
+            <strong>{isEdit ? 'Edit Service' : 'Add New Service'}</strong>
+          </div>
+          <button type="button" className="banner-close" onClick={onClose} aria-label="Close service modal">✕</button>
         </div>
 
-        {error && <div className="banner error" style={{ marginBottom: 14 }}>{error}</div>}
+        {error && <div className="banner error">{error}</div>}
 
-        <form onSubmit={handleSubmit} className="form" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <form onSubmit={handleSubmit} className="form">
           <label>
             Service Name *
             <input
@@ -101,7 +95,7 @@ export function ServiceModal({ service, onClose, onSaved }: ServiceModalProps) {
             />
           </label>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div className="grid-2">
             <label>
               Category
               <input

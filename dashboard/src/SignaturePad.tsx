@@ -110,15 +110,8 @@ export function SignaturePad({ value, onChange, label = 'Signature (Draw or Uplo
         <span className="field-label">{label}</span>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <label
-            className="btn secondary"
-            style={{
-              minHeight: 28,
-              padding: '2px 10px',
-              fontSize: '10.5px',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-            }}
+            className="btn secondary btn-sm"
+            style={{ cursor: 'pointer' }}
           >
             Upload Image
             <input
@@ -132,8 +125,7 @@ export function SignaturePad({ value, onChange, label = 'Signature (Draw or Uplo
           {value && (
             <button
               type="button"
-              className="btn secondary"
-              style={{ minHeight: 28, padding: '2px 10px', fontSize: '10.5px' }}
+              className="btn secondary btn-sm"
               onClick={handleClear}
             >
               Clear
@@ -159,12 +151,12 @@ export function SignaturePad({ value, onChange, label = 'Signature (Draw or Uplo
             alt="Signature preview"
             style={{ maxHeight: 68, maxWidth: 260, objectFit: 'contain' }}
           />
-          <span className="mono muted" style={{ fontSize: '10px' }}>
+          <span className="mono muted" style={{ fontSize: 'var(--text-xs)' }}>
             SAVED SIGNATURE READY FOR PDF
           </span>
         </div>
       ) : (
-        <div style={{ background: '#ffffff', border: '1px dashed var(--border-strong)', padding: 6 }}>
+        <div style={{ background: '#ffffff', border: '1px dashed var(--border-strong)', padding: 8 }}>
           <canvas
             ref={canvasRef}
             width={420}
@@ -181,7 +173,7 @@ export function SignaturePad({ value, onChange, label = 'Signature (Draw or Uplo
               touchAction: 'none',
             }}
           />
-          <div className="mono" style={{ fontSize: '10px', color: '#78716c', textAlign: 'right', paddingTop: 2 }}>
+          <div className="mono" style={{ fontSize: 'var(--text-xs)', color: '#57524a', textAlign: 'right', paddingTop: 4 }}>
             Draw signature above or click Upload Image
           </div>
         </div>

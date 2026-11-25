@@ -291,8 +291,7 @@ export function Approvals({ refreshKey = 0, onChanged }: { refreshKey?: number; 
                   </td>
                   <td className="act">
                     <button
-                      className="btn secondary"
-                      style={{ minHeight: 30, padding: '4px 10px', fontSize: '11px' }}
+                      className="btn secondary btn-sm"
                       type="button"
                       onClick={() => review(quote.id)}
                       disabled={busy}

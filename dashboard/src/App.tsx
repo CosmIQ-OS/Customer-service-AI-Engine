@@ -242,8 +242,8 @@ export function App() {
     return (
       <div className="login-screen">
         <div className="login-card" style={{ textAlign: 'center' }}>
-          <div className="kicker">COSMIQ OS // INITIALIZING</div>
-          <p className="muted small" style={{ marginTop: 10 }}>
+          <div className="kicker">CosmIQ OS · Initializing</div>
+          <p className="muted small" style={{ marginTop: 12 }}>
             Connecting to Support &amp; Quotation Workbench…
           </p>
         </div>
@@ -337,14 +337,13 @@ export function App() {
 
       {error && <div className="banner error" style={{ marginTop: 16 }}>{error}</div>}
 
-      {/* Numbered Architectural Tab Navigation */}
+      {/* Architectural Tab Navigation */}
       <nav className="nav-tabs" aria-label="Workbench Sections">
         <button
           type="button"
           className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
           onClick={() => setActiveTab('overview')}
         >
-          <span className="tab-index">01</span>
           <span>OVERVIEW</span>
         </button>
 
@@ -353,7 +352,6 @@ export function App() {
           className={`tab-btn ${activeTab === 'inbox' ? 'active' : ''}`}
           onClick={() => setActiveTab('inbox')}
         >
-          <span className="tab-index">02</span>
           <span>LIVE INBOX</span>
           <span className="tab-badge">LIVE</span>
         </button>
@@ -363,7 +361,6 @@ export function App() {
           className={`tab-btn ${activeTab === 'intakes' ? 'active' : ''}`}
           onClick={() => setActiveTab('intakes')}
         >
-          <span className="tab-index">03</span>
           <span>LEADS &amp; INTAKE</span>
           <span className="tab-badge">{intakes.length}</span>
         </button>
@@ -373,7 +370,6 @@ export function App() {
           className={`tab-btn ${activeTab === 'quotes' ? 'active' : ''}`}
           onClick={() => setActiveTab('quotes')}
         >
-          <span className="tab-index">04</span>
           <span>INVOICE</span>
           {approvalsCount > 0 && <span className="tab-badge alert">{approvalsCount} PENDING</span>}
         </button>
@@ -383,7 +379,6 @@ export function App() {
           className={`tab-btn ${activeTab === 'proposals' ? 'active' : ''}`}
           onClick={() => setActiveTab('proposals')}
         >
-          <span className="tab-index">05</span>
           <span>PROPOSAL</span>
         </button>
 
@@ -392,7 +387,6 @@ export function App() {
           className={`tab-btn ${activeTab === 'services' ? 'active' : ''}`}
           onClick={() => setActiveTab('services')}
         >
-          <span className="tab-index">06</span>
           <span>CATALOG &amp; PRICING</span>
           <span className="tab-badge">{services.length}</span>
         </button>
@@ -402,30 +396,27 @@ export function App() {
           className={`tab-btn ${activeTab === 'logs' ? 'active' : ''}`}
           onClick={() => setActiveTab('logs')}
         >
-          <span className="tab-index">07</span>
           <span>TELEMETRY &amp; LOGS</span>
         </button>
       </nav>
 
-      {/* 01 OVERVIEW */}
+      {/* OVERVIEW */}
       {activeTab === 'overview' && (
         <div>
           <div className="stats-grid">
             <div className="stat-cell">
               <div className="stat-cell-head">
-                <span className="stat-label">METRIC // 01 · SERVICES</span>
-                <Pill tone="ok">ACTIVE</Pill>
+                <span className="stat-label">Services</span>
               </div>
               <div className="stat-value">
-                {availableServicesCount} <span className="muted" style={{ fontSize: '1.1rem' }}>/ {services.length}</span>
+                {availableServicesCount} <span className="muted" style={{ fontSize: 'var(--text-lg)' }}>/ {services.length}</span>
               </div>
               <div className="stat-subtext">Operational services in catalog</div>
             </div>
 
             <div className="stat-cell">
               <div className="stat-cell-head">
-                <span className="stat-label">METRIC // 02 · INTAKES</span>
-                <Pill tone="ok">CAPTURED</Pill>
+                <span className="stat-label">Intakes</span>
               </div>
               <div className="stat-value ok">{summary?.counts?.intakes ?? intakes.length}</div>
               <div className="stat-subtext">
@@ -435,8 +426,8 @@ export function App() {
 
             <div className="stat-cell">
               <div className="stat-cell-head">
-                <span className="stat-label">METRIC // 03 · APPROVALS</span>
-                {approvalsCount > 0 ? <Pill tone="acc">ACTION</Pill> : <Pill>CLEAR</Pill>}
+                <span className="stat-label">Approvals</span>
+                {approvalsCount > 0 && <Pill tone="acc">ACTION</Pill>}
               </div>
               <div className={`stat-value ${approvalsCount > 0 ? 'accent' : ''}`}>{approvalsCount}</div>
               <div className="stat-subtext">
@@ -446,8 +437,7 @@ export function App() {
 
             <div className="stat-cell">
               <div className="stat-cell-head">
-                <span className="stat-label">METRIC // 04 · FAQS</span>
-                <Pill>GROUNDED</Pill>
+                <span className="stat-label">FAQs</span>
               </div>
               <div className="stat-value">{summary?.counts?.faqs ?? '—'}</div>
               <div className="stat-subtext">{summary?.counts?.logs ?? logs.length} telemetry events recorded</div>
@@ -488,13 +478,13 @@ export function App() {
                     No client intakes recorded yet. Incoming WhatsApp leads populate here automatically.
                   </div>
                 ) : (
-                  <div className="stack" style={{ gap: 10, flex: 1 }}>
+                  <div className="stack" style={{ gap: 12, flex: 1 }}>
                     {intakes.slice(0, 4).map((item, idx) => {
                       const currentStatus = normalizeLeadStatus(item.status);
                       return (
-                        <div key={item.id ?? idx} className="list-row" style={{ flexDirection: 'column', gap: 6 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 12 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div key={item.id ?? idx} className="list-row" style={{ flexDirection: 'column', gap: 8 }}>
+                          <div className="lead-card-head">
+                            <div className="lead-card-title">
                               <Pill tone={item.channel === 'website' ? 'website' : item.channel === 'whatsapp' ? 'whatsapp' : 'telegram'}>
                                 {item.channel === 'website' ? '🌐 WEB' : item.channel?.toUpperCase()}
                               </Pill>
@@ -514,11 +504,11 @@ export function App() {
                               ))}
                             </select>
                           </div>
-                          <div className="mono muted" style={{ fontSize: '11px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <div className="mono muted" style={{ fontSize: 'var(--text-xs)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                             <span>SIZE: {item.company_size || '—'}</span>
-                            <span>//</span>
+                            <span>·</span>
                             <span>TOOLS: {item.current_tools || '—'}</span>
-                            <span>//</span>
+                            <span>·</span>
                             <span className="claim">{item.service_name || '—'}</span>
                           </div>
                         </div>
@@ -607,7 +597,7 @@ export function App() {
             </label>
 
             <div className="lead-toolbar-meta">
-              <span className="mono muted" style={{ fontSize: '11px' }}>
+              <span className="mono muted" style={{ fontSize: 'var(--text-xs)' }}>
                 {filteredIntakes.length} / {intakes.length} LEADS
               </span>
               {hasActiveIntakeFilters && (
@@ -665,14 +655,13 @@ export function App() {
                 </select>,
                 <button
                   type="button"
-                  className="btn danger btn-sm"
+                  className="btn danger btn-icon"
                   aria-label={`Delete lead ${r.company_name || r.external_user_id}`}
                   title="Delete lead"
                   disabled={deletingLeadId === r.id}
                   onClick={() => deleteLead(r)}
-                  style={{ minHeight: 28, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m5 4v6m4-6v6" />
                   </svg>
                 </button>,
@@ -698,16 +687,15 @@ export function App() {
       {activeTab === 'services' && (
         <div className="split-grid">
           <section className="card">
-            <div className="panel-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-              <div>
+            <div className="panel-title">
+              <div className="panel-title-group">
                 <strong>Services Catalog</strong>
                 <Pill tone="ok">{availableServicesCount} AVAILABLE</Pill>
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div className="toolbar">
                 <button
                   type="button"
-                  className="btn secondary"
-                  style={{ minHeight: 30, fontSize: '11px', padding: '0 10px' }}
+                  className="btn secondary btn-sm"
                   onClick={() => setShowSettingsModal(true)}
                   title="Configure company size multipliers and default Terms & Conditions template"
                 >
@@ -715,8 +703,7 @@ export function App() {
                 </button>
                 <button
                   type="button"
-                  className="btn primary"
-                  style={{ minHeight: 30, fontSize: '11px', padding: '0 10px' }}
+                  className="btn primary btn-sm"
                   onClick={() => {
                     setEditingService(null);
                     setShowServiceModal(true);
@@ -736,9 +723,9 @@ export function App() {
               render={(s) => [
                 <div>
                   <strong>{s.name}</strong>
-                  <div className="small muted" style={{ marginTop: 2 }}>{s.availability_note || s.description}</div>
+                  <div className="small muted" style={{ marginTop: 4 }}>{s.availability_note || s.description}</div>
                 </div>,
-                <strong className="mono" style={{ color: 'var(--accent-primary)', fontSize: '0.92rem' }}>
+                <strong className="mono" style={{ color: 'var(--accent-primary)', fontSize: 'var(--text-sm)' }}>
                   {formatInr((s.base_price_paise || 0) / 100)}
                 </strong>,
                 <Pill>{s.category || 'general'}</Pill>,
@@ -746,17 +733,16 @@ export function App() {
                   type="button"
                   onClick={() => toggleServiceStatus(s)}
                   title="Click to cycle status: available → limited → maintenance → unavailable"
-                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', minHeight: 36 }}
                 >
                   <Pill tone={s.status === 'available' ? 'ok' : s.status === 'limited' ? 'orange' : s.status === 'maintenance' ? 'acc' : 'rose'}>
                     {s.status} ⟳
                   </Pill>
                 </button>,
-                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                   <button
                     type="button"
-                    className="btn secondary"
-                    style={{ minHeight: 26, fontSize: '10px', padding: '2px 8px' }}
+                    className="btn secondary btn-sm"
                     onClick={() => {
                       setEditingService(s);
                       setShowServiceModal(true);
@@ -766,8 +752,7 @@ export function App() {
                   </button>
                   <button
                     type="button"
-                    className="btn danger"
-                    style={{ minHeight: 26, fontSize: '10px', padding: '2px 8px' }}
+                    className="btn danger btn-sm"
                     onClick={() => deleteService(s)}
                   >
                     Delete

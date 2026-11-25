@@ -463,7 +463,6 @@ export function LiveConversations({ initialSessionId, onUnauthorized }: LiveConv
     <section className="inbox-card">
       <div className="inbox-header">
         <div className="inbox-header-title">
-          <div className="kicker">TERMINAL // LIVE CONVERSATIONS</div>
           <h2>Enquiry &amp; Support Inbox</h2>
         </div>
         <div className="toolbar">
@@ -660,11 +659,11 @@ export function LiveConversations({ initialSessionId, onUnauthorized }: LiveConv
                             <span className="msg-role-tag">
                               {isUser ? 'CUSTOMER' : isAi ? 'COSMIQ AI' : 'OPERATOR'}
                             </span>
-                            <span>//</span>
+                            <span>·</span>
                             <span>{fmtTime(m.created_at)}</span>
                             {!isUser && (
                               <>
-                                <span>//</span>
+                                <span>·</span>
                                 <button
                                   type="button"
                                   className="msg-delete-btn"
@@ -718,8 +717,8 @@ export function LiveConversations({ initialSessionId, onUnauthorized }: LiveConv
                 </form>
                 <div className="chat-status-tip">
                   {active.mode === 'ai'
-                    ? 'STATUS // AI ACTIVE: Automated responses enabled. Click TAKE OVER to reply manually.'
-                    : 'STATUS // OPERATOR CONTROL: AI paused. Replies dispatch directly to channel.'}
+                    ? 'AI Active: Automated responses enabled. Click Take Over to reply manually.'
+                    : 'Operator Control: AI paused. Replies dispatch directly to channel.'}
                 </div>
               </div>
             </>

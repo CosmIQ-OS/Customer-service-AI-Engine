@@ -89,58 +89,37 @@ export function Proposals({ refreshKey = 0 }: { refreshKey?: number }) {
 
   return (
     <section className="card" style={{ width: '100%' }}>
-      {/* Top toolbar: New Proposal button + Settings icon on the left corner */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 12,
-          flexWrap: 'wrap',
-          marginBottom: 16,
-          paddingBottom: 14,
-          borderBottom: '1px solid var(--border-default)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button
-            type="button"
-            className="btn primary"
-            onClick={() => setShowNewModal(true)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-          >
-            <span>+</span>
-            <span>NEW PROPOSAL</span>
-          </button>
-
-          <button
-            type="button"
-            className="btn secondary"
-            onClick={() => setShowSettingsModal(true)}
-            aria-label="Proposal Settings"
-            title="Proposal Settings: Edit Sign-off Name, Signature & Default Data Privacy"
-            style={{
-              minWidth: 40,
-              padding: '8px 12px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '15px',
-            }}
-          >
-            ⚙
-          </button>
+      <div className="panel-title">
+        <div className="panel-title-group">
+          <strong>Proposals</strong>
+          <span className="pill">{proposals.length} PROPOSALS</span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span className="pill">{proposals.length} PROPOSALS</span>
+        <div className="toolbar">
           <button
             type="button"
-            className="btn secondary"
-            style={{ minHeight: 34, padding: '6px 12px' }}
+            className="btn secondary btn-sm"
             onClick={() => load().catch(() => undefined)}
           >
             Refresh
+          </button>
+          <button
+            type="button"
+            className="btn secondary btn-icon"
+            onClick={() => setShowSettingsModal(true)}
+            aria-label="Proposal Settings"
+            title="Proposal Settings: Edit Sign-off Name, Signature & Default Data Privacy"
+            style={{ fontSize: '16px' }}
+          >
+            ⚙
+          </button>
+          <button
+            type="button"
+            className="btn primary btn-sm"
+            onClick={() => setShowNewModal(true)}
+          >
+            <span>+</span>
+            <span>NEW PROPOSAL</span>
           </button>
         </div>
       </div>
@@ -200,7 +179,7 @@ export function Proposals({ refreshKey = 0 }: { refreshKey?: number }) {
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                           {sections.length > 0 ? (
                             sections.map((s) => (
-                              <span key={s} className="tag" style={{ fontSize: '10px', padding: '1px 6px' }}>
+                              <span key={s} className="tag">
                                 {s}
                               </span>
                             ))
@@ -231,18 +210,9 @@ export function Proposals({ refreshKey = 0 }: { refreshKey?: number }) {
                         </select>
                       </td>
                       <td className="act">
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                           <a
-                            className="btn secondary"
-                            style={{
-                              minHeight: 30,
-                              padding: '4px 10px',
-                              fontSize: '11px',
-                              textDecoration: 'none',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4,
-                            }}
+                            className="btn secondary btn-sm"
                             href={`/api/contract-proposals/${p.id}/pdf`}
                             target="_blank"
                             rel="noopener noreferrer"
@@ -252,16 +222,7 @@ export function Proposals({ refreshKey = 0 }: { refreshKey?: number }) {
                             <span>↗</span>
                           </a>
                           <a
-                            className="btn primary"
-                            style={{
-                              minHeight: 30,
-                              padding: '4px 10px',
-                              fontSize: '11px',
-                              textDecoration: 'none',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4,
-                            }}
+                            className="btn primary btn-sm"
                             href={`/api/contract-proposals/${p.id}/pdf?download=1`}
                             download={`${p.proposal_number}.pdf`}
                             title="Download Proposal PDF"

@@ -272,47 +272,37 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose} style={{
-      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-      background: 'rgba(0,0,0,0.65)', zIndex: 1000,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16
-    }}>
-      <div className="card" onClick={(e) => e.stopPropagation()} style={{
-        width: '100%', maxWidth: 840, background: 'var(--bg-surface)',
-        border: '1px solid var(--border-default)', boxShadow: '0 12px 40px rgba(0,0,0,0.35)',
-        maxHeight: '92vh', overflowY: 'auto'
-      }}>
-        <div className="panel-title" style={{ marginBottom: 14 }}>
-          <div>
-            <strong>NEW COMMERCIAL INVOICE</strong>
-            <span className="pill" style={{ marginLeft: 8 }}>PDF GENERATOR</span>
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card wide" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div className="modal-head-title">
+            <strong>New Commercial Invoice</strong>
+            <span className="pill">PDF GENERATOR</span>
           </div>
-          <button type="button" className="banner-close" onClick={onClose}>✕</button>
+          <button type="button" className="banner-close" onClick={onClose} aria-label="Close invoice modal">✕</button>
         </div>
 
-        {error && <div className="banner error" style={{ marginBottom: 14 }}>{error}</div>}
+        {error && <div className="banner error">{error}</div>}
 
         {loading ? (
           <div className="muted small" style={{ padding: 32, textAlign: 'center' }}>Loading invoice components…</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="form">
             {/* Step 1: Lead Selection */}
-            <div style={{ background: 'var(--bg-elevated)', padding: 14, borderRadius: 6, border: '1px solid var(--border-default)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <span className="stat-label">STEP 01 // CHOOSE LEAD</span>
-                <div style={{ display: 'flex', gap: 8 }}>
+            <div className="modal-section">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <span className="stat-label">Step 1 · Choose Lead</span>
+                <div className="toolbar">
                   <button
                     type="button"
-                    className={`btn ${leadMode === 'existing' ? 'primary' : 'secondary'}`}
-                    style={{ minHeight: 28, fontSize: '11px', padding: '2px 10px' }}
+                    className={`btn btn-sm ${leadMode === 'existing' ? 'primary' : 'secondary'}`}
                     onClick={() => setLeadMode('existing')}
                   >
                     Select From Inbound Leads
                   </button>
                   <button
                     type="button"
-                    className={`btn ${leadMode === 'custom' ? 'primary' : 'secondary'}`}
-                    style={{ minHeight: 28, fontSize: '11px', padding: '2px 10px' }}
+                    className={`btn btn-sm ${leadMode === 'custom' ? 'primary' : 'secondary'}`}
                     onClick={() => {
                       setLeadMode('custom');
                       setSelectedIntakeId('');
@@ -342,7 +332,7 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
                 </div>
               ) : null}
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginTop: 10 }}>
+              <div className="grid-4 stack-xs">
                 <label>
                   Company / Client Name *
                   <input
@@ -388,35 +378,35 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
             </div>
 
             {/* Step 2: Company Size Bracket & Multiplier */}
-            <div style={{ background: 'var(--bg-elevated)', padding: 14, borderRadius: 6, border: '1px solid var(--border-default)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <span className="stat-label">STEP 02 // COMPANY SIZE PRICING BRACKET</span>
+            <div className="modal-section">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <span className="stat-label">Step 2 · Company Size Pricing Bracket</span>
                 <span className="pill ok">ACTIVE MULTIPLIER: {multipliers[companySize] ?? 1.0}x</span>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+              <div className="grid-4">
                 {(['0-5', '5-10', '10-20', '20+'] as const).map((tier) => (
                   <button
                     key={tier}
                     type="button"
                     className={`btn ${companySize === tier ? 'primary' : 'secondary'}`}
-                    style={{ minHeight: 34, fontSize: '11px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
+                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '8px 12px', whiteSpace: 'normal' }}
                     onClick={() => handleCompanySizeChange(tier)}
                   >
                     <span>{tier} EMPLOYEES</span>
-                    <span style={{ fontSize: '10px', opacity: 0.85 }}>({multipliers[tier]}x Multiplier)</span>
+                    <span style={{ fontSize: 'var(--text-xs)', opacity: 0.85 }}>({multipliers[tier]}x Multiplier)</span>
                   </button>
                 ))}
               </div>
             </div>
 
             {/* Step 3: Services & Line Items */}
-            <div style={{ background: 'var(--bg-elevated)', padding: 14, borderRadius: 6, border: '1px solid var(--border-default)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <span className="stat-label">STEP 03 // SERVICES &amp; PRICING DELIVERABLES</span>
-                <div style={{ display: 'flex', gap: 8 }}>
+            <div className="modal-section">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <span className="stat-label">Step 3 · Services &amp; Pricing Deliverables</span>
+                <div className="toolbar" style={{ flex: '1 1 280px', justifyContent: 'flex-end' }}>
                   <select
-                    style={{ minHeight: 32, fontSize: '11px', maxWidth: 260 }}
+                    style={{ flex: '1 1 180px', maxWidth: 260 }}
                     value={selectedServiceId}
                     onChange={(e) => setSelectedServiceId(e.target.value)}
                   >
@@ -428,16 +418,14 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
                   </select>
                   <button
                     type="button"
-                    className="btn primary"
-                    style={{ minHeight: 32, fontSize: '11px', padding: '0 12px' }}
+                    className="btn primary btn-sm"
                     onClick={handleAddSelectedService}
                   >
                     + Add Service
                   </button>
                   <button
                     type="button"
-                    className="btn secondary"
-                    style={{ minHeight: 32, fontSize: '11px', padding: '0 10px' }}
+                    className="btn secondary btn-sm"
                     onClick={handleAddCustomItem}
                   >
                     + Custom Item
@@ -446,20 +434,20 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
               </div>
 
               {items.length === 0 ? (
-                <div className="muted small" style={{ padding: '24px 12px', textAlign: 'center', border: '1px dashed var(--border-default)', borderRadius: 4 }}>
+                <div className="muted small" style={{ padding: '24px 12px', textAlign: 'center', border: '1px dashed var(--border-default)' }}>
                   No line items added yet. Click <strong>+ Add Service</strong> above to populate invoice deliverables.
                 </div>
               ) : (
                 <div className="table-wrap">
-                  <table style={{ width: '100%', fontSize: '12px' }}>
+                  <table>
                     <thead>
                       <tr>
                         <th>Deliverable / Service</th>
-                        <th style={{ width: 80 }}>Unit</th>
-                        <th style={{ width: 70 }} className="num">Qty</th>
-                        <th style={{ width: 130 }} className="num">Unit Price (₹)</th>
-                        <th style={{ width: 110 }} className="num">Total (₹)</th>
-                        <th style={{ width: 36 }}></th>
+                        <th style={{ width: 96 }}>Unit</th>
+                        <th style={{ width: 80 }} className="num">Qty</th>
+                        <th style={{ width: 136 }} className="num">Unit Price (₹)</th>
+                        <th style={{ width: 120 }} className="num">Total (₹)</th>
+                        <th style={{ width: 48 }}></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -470,7 +458,6 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
                               type="text"
                               value={item.description}
                               onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
-                              style={{ width: '100%', padding: '4px 8px', fontSize: '12px' }}
                             />
                           </td>
                           <td>
@@ -478,7 +465,6 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
                               type="text"
                               value={item.unit}
                               onChange={(e) => handleItemChange(item.id, 'unit', e.target.value)}
-                              style={{ width: '100%', padding: '4px 6px', fontSize: '11px' }}
                             />
                           </td>
                           <td>
@@ -487,7 +473,7 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
                               min="1"
                               value={item.quantity}
                               onChange={(e) => handleItemChange(item.id, 'quantity', Math.max(1, Number(e.target.value)))}
-                              style={{ width: '100%', padding: '4px 6px', fontSize: '11px', textAlign: 'right' }}
+                              style={{ textAlign: 'right' }}
                             />
                           </td>
                           <td>
@@ -497,19 +483,20 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
                               step="500"
                               value={item.unitPriceInr}
                               onChange={(e) => handleItemChange(item.id, 'unitPriceInr', Math.max(0, Number(e.target.value)))}
-                              style={{ width: '100%', padding: '4px 8px', fontSize: '11px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}
+                              style={{ textAlign: 'right', fontFamily: 'var(--font-mono)' }}
                             />
                           </td>
-                          <td className="num font-mono" style={{ fontWeight: 600 }}>
+                          <td className="num mono" style={{ fontWeight: 600 }}>
                             {formatInr(item.quantity * item.unitPriceInr)}
                           </td>
                           <td style={{ textAlign: 'center' }}>
                             <button
                               type="button"
                               className="banner-close"
-                              style={{ fontSize: '14px', color: 'var(--status-danger)' }}
+                              style={{ color: 'var(--status-danger)' }}
                               onClick={() => handleRemoveItem(item.id)}
                               title="Remove item"
+                              aria-label="Remove item"
                             >
                               ✕
                             </button>
@@ -522,32 +509,32 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
               )}
 
               {/* Total Calculation Strip */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
-                <div style={{ width: 320, display: 'flex', flexDirection: 'column', gap: 6, fontSize: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                <div style={{ width: '100%', maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 'var(--text-sm)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span className="muted">Subtotal:</span>
                     <strong className="mono">{formatInr(subtotalInr)}</strong>
                   </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'var(--stone-900)', color: '#fff', borderRadius: 4, marginTop: 4 }}>
-                    <strong>INVOICE TOTAL:</strong>
-                    <strong className="mono" style={{ color: 'var(--accent-primary)', fontSize: '0.95rem' }}>{formatInr(totalInr)}</strong>
+                  <div className="quote-total-band" style={{ marginTop: 0 }}>
+                    <strong>INVOICE TOTAL</strong>
+                    <strong className="mono">{formatInr(totalInr)}</strong>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Step 4: Terms & Notes */}
-            <div style={{ background: 'var(--bg-elevated)', padding: 14, borderRadius: 6, border: '1px solid var(--border-default)' }}>
-              <span className="stat-label">STEP 04 // TERMS &amp; INTERNAL NOTES</span>
-              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 12, marginTop: 10 }}>
+            <div className="modal-section">
+              <span className="stat-label">Step 4 · Terms &amp; Internal Notes</span>
+              <div className="grid-12-8">
                 <label>
                   Invoice Terms &amp; Conditions (Printed on PDF)
                   <textarea
                     rows={4}
                     value={terms}
                     onChange={(e) => setTerms(e.target.value)}
-                    style={{ width: '100%', fontSize: '11px', fontFamily: 'var(--font-mono)' }}
+                    style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}
                     placeholder="Invoice terms and payment schedule…"
                   />
                 </label>
@@ -558,7 +545,6 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
                     rows={4}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    style={{ width: '100%', fontSize: '11px' }}
                     placeholder="Internal team notes, specific stakeholder preferences, or deployment details…"
                   />
                 </label>
@@ -566,7 +552,7 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
             </div>
 
             {/* Modal Footer Actions */}
-            <div className="toolbar" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 6 }}>
+            <div className="toolbar" style={{ justifyContent: 'flex-end' }}>
               <button type="button" className="btn secondary" onClick={onClose} disabled={busy}>
                 Cancel
               </button>
@@ -583,7 +569,6 @@ export function NewProposalModal({ onClose, onSaved }: NewProposalModalProps) {
                 className="btn primary"
                 disabled={busy}
                 onClick={() => submitInvoice(true)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
               >
                 <span>{busy ? 'Generating…' : 'Save & Download PDF'}</span>
                 <span>↓</span>

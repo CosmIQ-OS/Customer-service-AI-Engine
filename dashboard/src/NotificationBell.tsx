@@ -157,8 +157,7 @@ export function NotificationBell({
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <button
                   type="button"
-                  className="btn secondary"
-                  style={{ minHeight: 26, padding: '3px 8px', fontSize: '10px' }}
+                  className="btn secondary btn-sm"
                   onClick={markAllRead}
                   disabled={unread === 0 || busy}
                 >
@@ -233,7 +232,7 @@ export function NotificationBell({
                           {kindLabel(item.kind)}
                           {isUnread ? ' · unread' : ''}
                         </span>
-                        <span className="mono muted" style={{ fontSize: '10px' }}>
+                        <span className="mono muted" style={{ fontSize: 'var(--text-xs)' }}>
                           {fmtTime(item.created_at)}
                         </span>
                       </div>

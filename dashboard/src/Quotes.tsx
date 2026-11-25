@@ -101,20 +101,19 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
 
   return (
     <section className="card">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
-        <h2 className="panel-title" style={{ margin: 0, borderBottom: 0, paddingBottom: 0 }}>
-          <strong>INVOICE</strong>
-          <span>Commercial billing &amp; client invoices</span>
-        </h2>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button className="btn secondary" type="button" onClick={() => load().catch(() => undefined)}>
+      <div className="panel-title">
+        <div className="panel-title-group">
+          <strong>Invoices</strong>
+          <span className="sub-meta">Commercial billing &amp; client invoices</span>
+        </div>
+        <div className="toolbar">
+          <button className="btn secondary btn-sm" type="button" onClick={() => load().catch(() => undefined)}>
             Refresh
           </button>
           <button
             type="button"
-            className="btn primary"
+            className="btn primary btn-sm"
             onClick={() => setShowNewInvoice(true)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
           >
             <span>+</span>
             <span>NEW INVOICE</span>
@@ -181,10 +180,9 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
                           ))}
                         </select>
                       </td>
-                      <td className="act" style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                      <td className="act" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                         <a
-                          className="btn secondary"
-                          style={{ minHeight: 30, padding: '4px 8px', fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                          className="btn secondary btn-sm"
                           href={`/api/quotes/${quote.id}/pdf`}
                           download={`${quote.quote_number}.pdf`}
                           title="Download Invoice PDF"
@@ -192,8 +190,7 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
                           PDF ↓
                         </a>
                         <button
-                          className="btn secondary"
-                          style={{ minHeight: 30, padding: '4px 10px', fontSize: '11px' }}
+                          className="btn secondary btn-sm"
                           type="button"
                           onClick={() => view(quote.id)}
                         >
@@ -219,13 +216,12 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
           }}
         >
           <div className="panel-title">
-            <strong className="mono" style={{ fontSize: '0.92rem' }}>
+            <strong className="mono" style={{ fontSize: 'var(--text-base)' }}>
               {detail.quote.quote_number}
             </strong>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div className="toolbar">
               <a
-                className="btn primary"
-                style={{ minHeight: 28, padding: '2px 12px', fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                className="btn primary btn-sm"
                 href={`/api/quotes/${detail.quote.id}/pdf`}
                 download={`${detail.quote.quote_number}.pdf`}
               >
@@ -268,8 +264,8 @@ export function Quotes({ refreshKey = 0 }: { refreshKey?: number }) {
             <span>INVOICE TOTAL: {formatInr(detail.quote.total_paise)}</span>
           </div>
 
-          <p className="mono muted" style={{ fontSize: '11px', margin: '10px 0 0' }}>
-            CREATED // {fmtTime(detail.quote.created_at)}
+          <p className="mono muted" style={{ fontSize: 'var(--text-xs)', margin: '12px 0 0' }}>
+            Created · {fmtTime(detail.quote.created_at)}
           </p>
           {detail.quote.notes && (
             <p className="muted small" style={{ margin: '6px 0 0' }}>

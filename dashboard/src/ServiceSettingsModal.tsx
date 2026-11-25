@@ -83,33 +83,27 @@ export function ServiceSettingsModal({ onClose, onSaved }: ServiceSettingsModalP
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose} style={{
-      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-      background: 'rgba(0,0,0,0.6)', zIndex: 1000,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16
-    }}>
-      <div className="card" onClick={(e) => e.stopPropagation()} style={{
-        width: '100%', maxWidth: 640, background: 'var(--bg-surface)',
-        border: '1px solid var(--border-default)', boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-        maxHeight: '90vh', overflowY: 'auto'
-      }}>
-        <div className="panel-title" style={{ marginBottom: 14 }}>
-          <strong>PRICING RULES &amp; INVOICE SETTINGS</strong>
-          <button type="button" className="banner-close" onClick={onClose}>✕</button>
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card md" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div className="modal-head-title">
+            <strong>Pricing Rules &amp; Invoice Settings</strong>
+          </div>
+          <button type="button" className="banner-close" onClick={onClose} aria-label="Close pricing settings">✕</button>
         </div>
 
-        {error && <div className="banner error" style={{ marginBottom: 14 }}>{error}</div>}
+        {error && <div className="banner error">{error}</div>}
         {loading ? (
           <div className="muted small" style={{ padding: 24, textAlign: 'center' }}>Loading settings…</div>
         ) : (
-          <form onSubmit={handleSubmit} className="form" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <form onSubmit={handleSubmit} className="form">
             <div>
-              <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>Company Size Multipliers</strong>
-              <p className="small muted" style={{ margin: '4px 0 10px' }}>
+              <strong style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>Company Size Multipliers</strong>
+              <p className="small muted" style={{ margin: '4px 0 12px' }}>
                 Applied to service base prices automatically when creating invoices.
               </p>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+              <div className="grid-4">
                 <label>
                   0–5 Size
                   <input
@@ -168,8 +162,8 @@ export function ServiceSettingsModal({ onClose, onSaved }: ServiceSettingsModalP
               </div>
             </div>
 
-            <div style={{ borderTop: '1px solid var(--border-default)', paddingTop: 14 }}>
-              <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>Default Invoice Terms &amp; Conditions Template</strong>
+            <div style={{ borderTop: '1px solid var(--border-default)', paddingTop: 16 }}>
+              <strong style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>Default Invoice Terms &amp; Conditions Template</strong>
               <p className="small muted" style={{ margin: '4px 0 8px' }}>
                 Pre-filled automatically into new invoices. You can edit it here or override it per invoice.
               </p>
@@ -178,7 +172,7 @@ export function ServiceSettingsModal({ onClose, onSaved }: ServiceSettingsModalP
                 rows={8}
                 value={terms}
                 onChange={(e) => setTerms(e.target.value)}
-                style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: '11px', lineHeight: 1.5 }}
+                style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', lineHeight: 1.5 }}
                 placeholder="Enter standard commercial terms, validity periods, payment schedules, and IP ownership clauses…"
               />
             </div>

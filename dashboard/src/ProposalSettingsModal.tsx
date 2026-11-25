@@ -68,57 +68,29 @@ export function ProposalSettingsModal({ onClose, onSaved }: ProposalSettingsModa
   }
 
   return (
-    <div
-      className="modal-backdrop"
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0,0,0,0.65)',
-        zIndex: 1000,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-      }}
-    >
-      <div
-        className="card"
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: '100%',
-          maxWidth: 720,
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border-default)',
-          boxShadow: '0 12px 40px rgba(0,0,0,0.35)',
-          maxHeight: '92vh',
-          overflowY: 'auto',
-        }}
-      >
-        <div className="panel-title" style={{ marginBottom: 14 }}>
-          <div>
-            <strong>PROPOSAL SETTINGS</strong>
-            <span className="pill" style={{ marginLeft: 8 }}>AUTO-FILL DEFAULTS</span>
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card md" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div className="modal-head-title">
+            <strong>Proposal Settings</strong>
+            <span className="pill">AUTO-FILL DEFAULTS</span>
           </div>
           <button type="button" className="banner-close" onClick={onClose} aria-label="Close proposal settings">
             ✕
           </button>
         </div>
 
-        {error && <div className="banner error" style={{ marginBottom: 14 }}>{error}</div>}
+        {error && <div className="banner error">{error}</div>}
 
         {loading ? (
-          <div className="muted small" style={{ padding: 28, textAlign: 'center' }}>
+          <div className="muted small" style={{ padding: 24, textAlign: 'center' }}>
             Loading proposal defaults…
           </div>
         ) : (
-          <form onSubmit={handleSave} className="form" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{ background: 'var(--bg-elevated)', padding: 14, border: '1px solid var(--border-default)' }}>
-              <span className="stat-label">OUR COMPANY DETAILS (AUTO-FILLED ON EVERY PROPOSAL)</span>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, marginTop: 10 }}>
+          <form onSubmit={handleSave} className="form">
+            <div className="modal-section">
+              <span className="stat-label">Our Company Details</span>
+              <div className="form" style={{ gap: 12 }}>
                 <label>
                   Our Company Name
                   <input
@@ -140,9 +112,9 @@ export function ProposalSettingsModal({ onClose, onSaved }: ProposalSettingsModa
               </div>
             </div>
 
-            <div style={{ background: 'var(--bg-elevated)', padding: 14, border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <span className="stat-label">SIGNING OFF OPTIONS (OUR COMPANY SIGNER &amp; SIGNATURE)</span>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div className="modal-section">
+              <span className="stat-label">Sign-Off &amp; Signature</span>
+              <div className="grid-2">
                 <label>
                   Signer Name
                   <input
@@ -170,21 +142,21 @@ export function ProposalSettingsModal({ onClose, onSaved }: ProposalSettingsModa
               />
             </div>
 
-            <div style={{ background: 'var(--bg-elevated)', padding: 14, border: '1px solid var(--border-default)' }}>
-              <span className="stat-label">DEFAULT DATA &amp; PRIVACY SECTION (AUTO-FILLED ON NEW PROPOSALS)</span>
-              <p className="small muted" style={{ margin: '6px 0 8px' }}>
+            <div className="modal-section">
+              <span className="stat-label">Default Data &amp; Privacy Clause</span>
+              <p className="small muted" style={{ margin: 0 }}>
                 This clause is automatically placed into the Data Privacy section of every new proposal.
               </p>
               <textarea
                 rows={6}
                 value={defaultDataPrivacy}
                 onChange={(e) => setDefaultDataPrivacy(e.target.value)}
-                style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: '11.5px', lineHeight: 1.5 }}
+                style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', lineHeight: 1.5 }}
                 placeholder="Enter standard Data Privacy, Intellectual Property, and Confidentiality clauses…"
               />
             </div>
 
-            <div className="toolbar" style={{ justifyContent: 'flex-end', gap: 10 }}>
+            <div className="toolbar" style={{ justifyContent: 'flex-end' }}>
               <button type="button" className="btn secondary" onClick={onClose} disabled={busy}>
                 Cancel
               </button>

@@ -146,37 +146,18 @@ export function NotificationSettingsModal({
     <div
       className="modal-backdrop"
       onClick={onClose}
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0,0,0,0.6)',
-        zIndex: 1100,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-      }}
+      style={{ zIndex: 1100 }}
     >
       <div
-        className="card"
+        className="modal-card md"
         role="dialog"
         aria-label="Lead Notification Channels"
         onClick={(e) => e.stopPropagation()}
-        style={{
-          width: '100%',
-          maxWidth: 640,
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border-default)',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-          maxHeight: '90vh',
-          overflowY: 'auto',
-        }}
       >
-        <div className="panel-title" style={{ marginBottom: 14 }}>
-          <strong>LEAD NOTIFICATION CHANNELS (FREE TIER)</strong>
+        <div className="modal-head">
+          <div className="modal-head-title">
+            <strong>Lead Notification Channels (Free Tier)</strong>
+          </div>
           <button type="button" className="notif-close-btn" onClick={onClose} aria-label="Close">
             ✕
           </button>

@@ -160,71 +160,41 @@ export function NewContractProposalModal({ onClose, onSaved }: NewContractPropos
   }
 
   return (
-    <div
-      className="modal-backdrop"
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0,0,0,0.65)',
-        zIndex: 1000,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-      }}
-    >
-      <div
-        className="card"
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: '100%',
-          maxWidth: 920,
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border-default)',
-          boxShadow: '0 12px 40px rgba(0,0,0,0.35)',
-          maxHeight: '92vh',
-          overflowY: 'auto',
-        }}
-      >
-        <div className="panel-title" style={{ marginBottom: 14 }}>
-          <div>
-            <strong>NEW BUSINESS PROPOSAL</strong>
-            <span className="pill" style={{ marginLeft: 8 }}>CONTRACT PDF BUILDER</span>
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card xl" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div className="modal-head-title">
+            <strong>New Business Proposal</strong>
+            <span className="pill">CONTRACT PDF BUILDER</span>
           </div>
           <button type="button" className="banner-close" onClick={onClose} aria-label="Close new proposal modal">
             ✕
           </button>
         </div>
 
-        {error && <div className="banner error" style={{ marginBottom: 14 }}>{error}</div>}
+        {error && <div className="banner error">{error}</div>}
 
         {loading ? (
           <div className="muted small" style={{ padding: 32, textAlign: 'center' }}>
             Loading leads &amp; proposal defaults…
           </div>
         ) : (
-          <div className="form" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="form">
             {/* Section A: Our Company & Customer's Company (Acquired from Lead) */}
-            <div style={{ background: 'var(--bg-elevated)', padding: 14, border: '1px solid var(--border-default)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-                <span className="stat-label">PARTIES // OUR COMPANY &amp; CUSTOMER COMPANY</span>
-                <div style={{ display: 'flex', gap: 8 }}>
+            <div className="modal-section">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <span className="stat-label">Parties · Our Company &amp; Customer Company</span>
+                <div className="toolbar">
                   <button
                     type="button"
-                    className={`btn ${leadMode === 'existing' ? 'primary' : 'secondary'}`}
-                    style={{ minHeight: 28, fontSize: '11px', padding: '2px 10px' }}
+                    className={`btn btn-sm ${leadMode === 'existing' ? 'primary' : 'secondary'}`}
                     onClick={() => setLeadMode('existing')}
                   >
                     Acquire From Lead
                   </button>
                   <button
                     type="button"
-                    className={`btn ${leadMode === 'custom' ? 'primary' : 'secondary'}`}
-                    style={{ minHeight: 28, fontSize: '11px', padding: '2px 10px' }}
+                    className={`btn btn-sm ${leadMode === 'custom' ? 'primary' : 'secondary'}`}
                     onClick={() => {
                       setLeadMode('custom');
                       setSelectedIntakeId('');
@@ -236,7 +206,7 @@ export function NewContractProposalModal({ onClose, onSaved }: NewContractPropos
               </div>
 
               {leadMode === 'existing' && (
-                <div style={{ marginBottom: 12 }}>
+                <div>
                   <label>
                     Select Inbound Lead
                     <select value={selectedIntakeId} onChange={(e) => handleSelectIntake(e.target.value)}>
@@ -251,12 +221,10 @@ export function NewContractProposalModal({ onClose, onSaved }: NewContractPropos
                 </div>
               )}
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2">
                 {/* Left: Our Company (Auto-filled) */}
-                <div style={{ padding: 12, background: 'var(--bg-surface)', border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <span className="mono muted" style={{ fontSize: '10.5px', fontWeight: 700 }}>
-                    FROM // OUR COMPANY (AUTO-FILLED)
-                  </span>
+                <div className="modal-subpanel">
+                  <span className="stat-label">From · Our Company (Auto-filled)</span>
                   <label>
                     Our Company Name
                     <input
@@ -271,10 +239,10 @@ export function NewContractProposalModal({ onClose, onSaved }: NewContractPropos
                       rows={2}
                       value={ourCompanyDetails}
                       onChange={(e) => setOurCompanyDetails(e.target.value)}
-                      style={{ minHeight: 54, fontSize: '12px' }}
+                      style={{ minHeight: 64 }}
                     />
                   </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div className="grid-2">
                     <label>
                       Date
                       <input
@@ -299,10 +267,8 @@ export function NewContractProposalModal({ onClose, onSaved }: NewContractPropos
                 </div>
 
                 {/* Right: Customer Company (Acquired from Lead) */}
-                <div style={{ padding: 12, background: 'var(--bg-surface)', border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <span className="mono muted" style={{ fontSize: '10.5px', fontWeight: 700 }}>
-                    TO // CUSTOMER COMPANY (FROM LEAD)
-                  </span>
+                <div className="modal-subpanel">
+                  <span className="stat-label">To · Customer Company (From Lead)</span>
                   <label>
                     Customer Company Name *
                     <input
@@ -313,7 +279,7 @@ export function NewContractProposalModal({ onClose, onSaved }: NewContractPropos
                       placeholder="e.g. FQLab and Research Centre Pvt Ltd"
                     />
                   </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div className="grid-2">
                     <label>
                       Lead / Contact Name
                       <input
@@ -333,7 +299,7 @@ export function NewContractProposalModal({ onClose, onSaved }: NewContractPropos
                       />
                     </label>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div className="grid-2">
                     <label>
                       Phone / User ID
                       <input
@@ -358,9 +324,9 @@ export function NewContractProposalModal({ onClose, onSaved }: NewContractPropos
             </div>
 
             {/* Section B: Optional Proposal Content Sections */}
-            <div style={{ background: 'var(--bg-elevated)', padding: 14, border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="modal-section">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                <span className="stat-label">PROPOSAL SECTIONS (ALL FIELDS OPTIONAL — EMPTY SECTIONS ARE OMITTED FROM PDF)</span>
+                <span className="stat-label">Proposal Sections (All Optional — Empty Sections Omitted From PDF)</span>
               </div>
 
               <label>
@@ -383,7 +349,7 @@ export function NewContractProposalModal({ onClose, onSaved }: NewContractPropos
                 />
               </label>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2">
                 <label>
                   3. Payment Schedules (Optional)
                   <textarea
@@ -405,7 +371,7 @@ export function NewContractProposalModal({ onClose, onSaved }: NewContractPropos
                 </label>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid-2">
                 <label>
                   5. Ongoing Cost (Optional)
                   <textarea
@@ -439,26 +405,23 @@ export function NewContractProposalModal({ onClose, onSaved }: NewContractPropos
             </div>
 
             {/* Section C: Signing Section */}
-            <div style={{ background: 'var(--bg-elevated)', padding: 14, border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="modal-section">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                <span className="stat-label">8. SIGNING SECTION (OPTIONAL IN CONTRACT PDF)</span>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', textTransform: 'none', fontSize: '12px', color: 'var(--text-primary)' }}>
+                <span className="stat-label">8. Signing Section (Optional in Contract PDF)</span>
+                <label className="notif-check-item">
                   <input
                     type="checkbox"
                     checked={includeSigning}
                     onChange={(e) => setIncludeSigning(e.target.checked)}
-                    style={{ width: 'auto', margin: 0 }}
                   />
-                  Include Acceptance &amp; Signatures block in Contract PDF
+                  <span>Include Acceptance &amp; Signatures block in Contract PDF</span>
                 </label>
               </div>
 
               {includeSigning && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                  <div style={{ padding: 12, background: 'var(--bg-surface)', border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <span className="mono muted" style={{ fontSize: '10.5px', fontWeight: 700 }}>
-                      CLIENT SIGNATORY ({clientCompany || 'CUSTOMER'})
-                    </span>
+                <div className="grid-2">
+                  <div className="modal-subpanel">
+                    <span className="stat-label">Client Signatory ({clientCompany || 'Customer'})</span>
                     <label>
                       Lead Signer Name
                       <input
@@ -484,10 +447,8 @@ export function NewContractProposalModal({ onClose, onSaved }: NewContractPropos
                     />
                   </div>
 
-                  <div style={{ padding: 12, background: 'var(--bg-surface)', border: '1px solid var(--border-default)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <span className="mono muted" style={{ fontSize: '10.5px', fontWeight: 700 }}>
-                      OUR SIGNATORY ({ourCompanyName || 'COSMIQ OS'})
-                    </span>
+                  <div className="modal-subpanel">
+                    <span className="stat-label">Our Signatory ({ourCompanyName || 'CosmIQ OS'})</span>
                     <label>
                       Our Signer Name
                       <input
@@ -517,7 +478,7 @@ export function NewContractProposalModal({ onClose, onSaved }: NewContractPropos
             </div>
 
             {/* Footer Actions */}
-            <div className="toolbar" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
+            <div className="toolbar" style={{ justifyContent: 'flex-end' }}>
               <button type="button" className="btn secondary" onClick={onClose} disabled={busy}>
                 Cancel
               </button>
@@ -534,7 +495,6 @@ export function NewContractProposalModal({ onClose, onSaved }: NewContractPropos
                 className="btn primary"
                 disabled={busy}
                 onClick={() => submitProposal(true)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
               >
                 <span>{busy ? 'Generating…' : 'Save & Download PDF'}</span>
                 <span>↓</span>
